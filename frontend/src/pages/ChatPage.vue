@@ -300,7 +300,11 @@ function escapeAttr(input: string) {
 
 function renderInline(input: string, sourceList: Source[]) {
   const escaped = escapeHtml(input)
-  return escaped.replace(/\[(\d+)\]/g, (match, raw) => {
+  const formatted = escaped
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+  return formatted.replace(/\[(\d+)\]/g, (match, raw) => {
     const idx = Number(raw) - 1
     const source = sourceList[idx]
     if (!source) return match
@@ -353,6 +357,23 @@ function renderMarkdown(input: string, sourceList: Source[]) {
     if (!trimmed) {
       flushParagraph()
       flushList()
+      continue
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      flushParagraph()
+      flushList()
+      const level = headingMatch[1].length
+      html.push(`<h${level}>${renderInline(headingMatch[2], sourceList)}</h${level}>`)
+      continue
+    }
+
+    if (trimmed.startsWith('>')) {
+      flushParagraph()
+      flushList()
+      const quote = trimmed.replace(/^>\s?/, '')
+      html.push(`<blockquote>${renderInline(quote, sourceList)}</blockquote>`)
       continue
     }
 
@@ -436,7 +457,47 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   font-size: 14px;
   color: #111827;
   line-height: 1.6;
+}
+.message--user .message-body {
   white-space: pre-wrap;
+}
+.message--assistant .message-body :global(p),
+.message--assistant .message-body :global(h1),
+.message--assistant .message-body :global(h2),
+.message--assistant .message-body :global(h3),
+.message--assistant .message-body :global(h4),
+.message--assistant .message-body :global(h5),
+.message--assistant .message-body :global(h6),
+.message--assistant .message-body :global(ul),
+.message--assistant .message-body :global(blockquote),
+.message--assistant .message-body :global(pre) {
+  margin: 0 0 12px 0;
+}
+.message--assistant .message-body :global(ul) {
+  margin-left: 20px;
+}
+.message--assistant .message-body :global(blockquote) {
+  padding-left: 12px;
+  border-left: 3px solid #e5e7eb;
+  color: #374151;
+}
+.message--assistant .message-body :global(pre) {
+  background: #f3f4f6;
+  border-radius: 10px;
+  padding: 12px;
+  overflow-x: auto;
+}
+.message--assistant .message-body :global(code) {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12px;
+}
+.message--assistant .message-body :global(.citation) {
+  color: #0f766e;
+  text-decoration: none;
+  font-weight: 600;
+}
+.message--assistant .message-body :global(.citation:hover) {
+  text-decoration: underline;
 }
 .message--assistant {
   border-left: 3px solid #0f766e;
@@ -449,6 +510,21 @@ function renderMarkdown(input: string, sourceList: Source[]) {
 .answer-content :global(p) {
   margin: 0 0 12px 0;
   line-height: 1.6;
+}
+.answer-content :global(h1),
+.answer-content :global(h2),
+.answer-content :global(h3),
+.answer-content :global(h4),
+.answer-content :global(h5),
+.answer-content :global(h6) {
+  margin: 0 0 12px 0;
+  font-weight: 600;
+}
+.answer-content :global(blockquote) {
+  margin: 0 0 12px 0;
+  padding-left: 12px;
+  border-left: 3px solid #e5e7eb;
+  color: #374151;
 }
 .answer-content :global(ul) {
   margin: 0 0 12px 20px;
