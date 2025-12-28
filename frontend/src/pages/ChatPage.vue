@@ -2,6 +2,7 @@
   <div class="chat">
     <div class="tabs">
       <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">Ответ</button>
+      <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">Шаги</button>
       <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">Ссылки</button>
       <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">Изображения</button>
     </div>
@@ -12,9 +13,15 @@
     </div>
 
     <div v-if="activeTab === 'answer'" class="answer">
-      <div class="answer-title">Диалог</div>
+      <div class="answer-title">Ответ</div>
       <div class="answer-card">
-        <div v-if="!messages.length" class="sources-empty">Сообщения появятся после первого запроса.</div>
+        <div v-if="!answerText" class="steps-card">
+          <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
+          <div v-for="(st, idx) in steps" :key="idx" class="step">
+            <div class="step-type">{{ st.type }}</div>
+            <div class="step-title">{{ st.title }}</div>
+          </div>
+        </div>
         <div v-else class="message-list">
           <div v-for="msg in messages" :key="msg.id" class="message" :class="`message--${msg.role}`">
             <div class="message-role">{{ msg.roleLabel }}</div>
@@ -49,7 +56,7 @@
       </div>
     </div>
 
-    <div v-if="activeTab === 'answer'" class="steps">
+    <div v-if="activeTab === 'steps'" class="steps">
       <div class="steps-title">Шаги</div>
       <div class="steps-card">
         <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
@@ -114,7 +121,7 @@ const snippets = ref<Snippet[]>([])
 const runId = ref<string>('')
 const isRunning = ref(false)
 const answerText = ref('')
-const activeTab = ref<'answer' | 'links' | 'images'>('answer')
+const activeTab = ref<'answer' | 'steps' | 'links' | 'images'>('answer')
 const sourceTitles = ref<Record<string, string>>({})
 const followup = ref('')
 const eventSource = ref<EventSource | null>(null)
