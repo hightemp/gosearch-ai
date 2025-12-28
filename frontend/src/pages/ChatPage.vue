@@ -12,10 +12,16 @@
     </div>
 
     <div v-if="activeTab === 'answer'" class="answer">
-      <div class="answer-title">Ответ</div>
+      <div class="answer-title">Диалог</div>
       <div class="answer-card">
-        <div v-if="!answerHtml" class="sources-empty">Ответ появится во время генерации…</div>
-        <div v-else class="answer-content" v-html="answerHtml" />
+        <div v-if="!messages.length" class="sources-empty">Сообщения появятся после первого запроса.</div>
+        <div v-else class="message-list">
+          <div v-for="msg in messages" :key="msg.id" class="message" :class="`message--${msg.role}`">
+            <div class="message-role">{{ msg.roleLabel }}</div>
+            <div class="message-body" v-if="msg.role === 'assistant'" v-html="msg.html" />
+            <div class="message-body" v-else>{{ msg.content }}</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -98,6 +104,7 @@ type Source = { url: string; title?: string }
 type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string }
+type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
 
 const route = useRoute()
 const router = useRouter()
@@ -113,6 +120,7 @@ const followup = ref('')
 const eventSource = ref<EventSource | null>(null)
 const currentChatId = ref('')
 const initialHandled = ref(false)
+const history = ref<ChatMessage[]>([])
 
 const statusText = computed(() => {
   if (isRunning.value) return 'Активен…'
@@ -128,15 +136,24 @@ const sourceDetails = computed(() =>
   }))
 )
 
-const answerHtml = computed(() => renderMarkdown(answerText.value, sources.value))
+const messages = computed(() => {
+  return history.value.map((msg) => {
+    const roleLabel = msg.role === 'assistant' ? 'Ассистент' : 'Вы'
+    const html = msg.role === 'assistant' ? renderMarkdown(msg.content, sources.value) : ''
+    return { ...msg, roleLabel, html }
+  })
+})
 
 async function startRun(queryText: string, model: string, chatId?: string) {
   if (!queryText) return
 
-  steps.value = []
-  sources.value = []
-  snippets.value = []
-  sourceTitles.value = {}
+  if (!chatId) {
+    steps.value = []
+    sources.value = []
+    snippets.value = []
+    sourceTitles.value = {}
+    history.value = []
+  }
   answerText.value = ''
   isRunning.value = true
   if (eventSource.value) {
@@ -159,6 +176,11 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     if (String(route.params.chatId) !== currentChatId.value) {
       await router.replace({ name: 'chat', params: { chatId: currentChatId.value }, query: { model } })
     }
+  }
+  history.value.push({ id: `user-${runId.value}`, role: 'user', content: queryText })
+
+  if (currentChatId.value) {
+    await loadHistory(currentChatId.value)
   }
 
   const es = new EventSource(`/api/runs/${runId.value}/stream`)
@@ -194,6 +216,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     const obj = JSON.parse(ev.data) as AnswerDelta
     if (obj.delta) {
       answerText.value += obj.delta
+      upsertAssistant(answerText.value)
     }
   })
 
@@ -202,6 +225,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     if (obj.answer) {
       answerText.value = obj.answer
     }
+    upsertAssistant(answerText.value)
     isRunning.value = false
   })
 
@@ -225,6 +249,27 @@ async function submitFollowup() {
   const model = String(route.query.model || '').trim()
   const chatId = currentChatId.value || String(route.params.chatId || '').trim()
   await startRun(text, model, chatId || undefined)
+}
+
+async function loadHistory(chatId: string) {
+  const resp = await fetch(`/api/chats/${chatId}/messages?limit=50`)
+  if (!resp.ok) return
+  const data = (await resp.json()) as { items?: ChatMessage[] }
+  if (!Array.isArray(data.items)) return
+  history.value = data.items
+    .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
+    .map((msg) => ({ id: msg.id, role: msg.role, content: msg.content }))
+}
+
+function upsertAssistant(content: string) {
+  if (!content) return
+  const last = history.value[history.value.length - 1]
+  if (last && last.role === 'assistant') {
+    last.content = content
+    history.value = [...history.value.slice(0, -1), last]
+    return
+  }
+  history.value.push({ id: `assistant-${runId.value}`, role: 'assistant', content })
 }
 
 function getDomain(url: string) {
@@ -372,6 +417,34 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   border-radius: 12px;
   padding: 16px;
   background: #fff;
+}
+.message-list {
+  display: grid;
+  gap: 16px;
+}
+.message {
+  display: grid;
+  gap: 6px;
+}
+.message-role {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+.message-body {
+  font-size: 14px;
+  color: #111827;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.message--assistant {
+  border-left: 3px solid #0f766e;
+  padding-left: 12px;
+}
+.message--user {
+  border-left: 3px solid #e5e7eb;
+  padding-left: 12px;
 }
 .answer-content :global(p) {
   margin: 0 0 12px 0;
