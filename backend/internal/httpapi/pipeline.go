@@ -300,6 +300,8 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 		cached, ok, err := s.loadCachedPage(ctx, source.URL)
 		if err == nil && ok && cached.Content != "" && time.Since(cached.FetchedAt) < cacheTTL {
 			s.logger.Debug().Str("run_id", runID).Str("url", source.URL).Msg("page cache hit")
+			cached.Title = sanitizeUTF8(cached.Title)
+			cached.Content = sanitizeUTF8(cached.Content)
 			if cached.Title != "" && source.Title == "" {
 				source.Title = cached.Title
 				_, _ = s.pool.Exec(ctx, `update sources set title=$1 where id=$2`, cached.Title, source.ID)
@@ -317,7 +319,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 				"length": len(cached.Content),
 			})
 
-			snips := cached.Snippets
+			snips := sanitizeSnippets(cached.Snippets)
 			if len(snips) == 0 {
 				snips = extractSnippets(cached.Content, s.cfg.SnippetMaxPerSource)
 				_ = s.upsertPageCache(ctx, source.URL, cached.Title, cached.Content, snips)
@@ -363,6 +365,8 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 		s.publishStep(ctx, runID, "page.fetch.ok", "Страница получена", map[string]any{"url": source.URL, "bytes": len(body), "cached": false})
 
 		title, text := extractText(body)
+		title = sanitizeUTF8(title)
+		text = sanitizeUTF8(text)
 		if title != "" && source.Title == "" {
 			source.Title = title
 			_, _ = s.pool.Exec(ctx, `update sources set title=$1 where id=$2`, title, source.ID)
@@ -375,6 +379,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 		})
 
 		snips := extractSnippets(text, s.cfg.SnippetMaxPerSource)
+		snips = sanitizeSnippets(snips)
 		if err := s.upsertPageCache(ctx, source.URL, title, text, snips); err != nil {
 			s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("cache upsert failed")
 		}
@@ -422,6 +427,9 @@ func (s *Server) loadCachedPage(ctx context.Context, pageURL string) (cachedPage
 }
 
 func (s *Server) upsertPageCache(ctx context.Context, pageURL, title, content string, snippets []string) error {
+	title = sanitizeUTF8(title)
+	content = sanitizeUTF8(content)
+	snippets = sanitizeSnippets(snippets)
 	raw, _ := json.Marshal(snippets)
 	_, err := s.pool.Exec(
 		ctx,
@@ -437,6 +445,7 @@ func (s *Server) upsertPageCache(ctx context.Context, pageURL, title, content st
 }
 
 func (s *Server) storeSnippet(ctx context.Context, sourceID, quote string) error {
+	quote = sanitizeUTF8(quote)
 	_, err := s.pool.Exec(ctx, `insert into page_snippets(source_id, quote) values ($1,$2)`, sourceID, quote)
 	return err
 }
@@ -806,4 +815,27 @@ func fallbackAnswer(query string, snippets []snippetRecord) string {
 
 func normalizeWhitespace(text string) string {
 	return strings.Join(strings.Fields(text), " ")
+}
+
+func sanitizeUTF8(input string) string {
+	if input == "" {
+		return input
+	}
+	return strings.ToValidUTF8(input, " ")
+}
+
+func sanitizeSnippets(snippets []string) []string {
+	if len(snippets) == 0 {
+		return snippets
+	}
+	out := make([]string, 0, len(snippets))
+	for _, snip := range snippets {
+		snip = sanitizeUTF8(snip)
+		snip = strings.TrimSpace(snip)
+		if snip == "" {
+			continue
+		}
+		out = append(out, snip)
+	}
+	return out
 }

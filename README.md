@@ -1,18 +1,18 @@
 # gosearch-ai (Perplexity-like)
 
-Stack: Go backend (agents + SSE), Vue 3 frontend, `searxng` search, Postgres storage, Docker Compose for local runs.
+Stack: Go backend (agents + SSE), Vue 3 frontend, SearxNG search, Postgres storage, Proxy Mux for outbound traffic, Docker Compose for local runs.
 
 ## Quick start
 
 1) Copy environment variables:
 
 ```bash
-cp .env.example .env
+cp docker/.env.example docker/.env
 ```
 
-2) Set `OPENROUTER_API_KEY` in `.env`.
+2) Set `OPENROUTER_API_KEY` in `docker/.env`.
 
-3) Configure models in `config.yaml`:
+3) Configure models in `docker/config.yaml`:
 
 ```yaml
 openrouter:
@@ -20,10 +20,13 @@ openrouter:
     - openai/gpt-4.1-mini
 ```
 
-4) Run:
+4) Ensure Proxy Mux routes are configured in `docker/proxy_mux/config.yaml`.
+
+5) Run:
 
 ```bash
-docker compose -f docker/docker-compose.yml up --build
+cd docker
+docker compose up --build
 ```
 
 Expected ports:
