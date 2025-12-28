@@ -1,38 +1,31 @@
 <template>
   <div class="layout">
     <aside class="sidebar">
-      <div class="brand">Библиотека</div>
+      <div class="brand">
+        <span>Библиотека</span>
+        <button class="home-link" @click="goHome">На главную</button>
+      </div>
       <nav class="nav">
         <div class="nav-section">Закладки</div>
         <div v-if="!bookmarks.length" class="nav-muted">Пока нет закладок.</div>
-        <button
-          v-for="item in bookmarks"
-          :key="item.id"
-          class="nav-item"
-          :class="{ 'nav-item--active': isActiveChat(item.id) }"
-          @click="openChat(item.id)"
-        >
-          <span class="nav-title">{{ item.title || 'Без названия' }}</span>
-          <span class="nav-meta">{{ formatDate(item.bookmarked_at || item.updated_at) }}</span>
-        </button>
+        <div v-for="item in bookmarks" :key="item.id" class="nav-row">
+          <button class="nav-link" :class="{ 'nav-item--active': isActiveChat(item.id) }" @click="openChat(item.id)">
+            <span class="nav-title">{{ item.title || 'Без названия' }}</span>
+            <span class="nav-meta">{{ formatDate(item.bookmarked_at || item.updated_at) }}</span>
+          </button>
+        </div>
 
         <div class="nav-section">Недавние</div>
         <div v-if="!recentChats.length" class="nav-muted">Пока нет запросов.</div>
-        <button
-          v-for="item in recentChats"
-          :key="item.id"
-          class="nav-item"
-          :class="{ 'nav-item--active': isActiveChat(item.id) }"
-          @click="openChat(item.id)"
-        >
-          <span class="nav-title">{{ item.title || 'Без названия' }}</span>
-          <span class="nav-meta">{{ formatDate(item.updated_at) }}</span>
-          <span class="nav-actions">
-            <button class="nav-action" @click.stop="toggleBookmark(item)">
-              {{ item.bookmarked ? 'Убрать' : 'В закладки' }}
-            </button>
-          </span>
-        </button>
+        <div v-for="item in recentChats" :key="item.id" class="nav-row">
+          <button class="nav-link" :class="{ 'nav-item--active': isActiveChat(item.id) }" @click="openChat(item.id)">
+            <span class="nav-title">{{ item.title || 'Без названия' }}</span>
+            <span class="nav-meta">{{ formatDate(item.updated_at) }}</span>
+          </button>
+          <button class="nav-action" @click="toggleBookmark(item)">
+            {{ item.bookmarked ? 'Убрать' : 'В закладки' }}
+          </button>
+        </div>
       </nav>
     </aside>
 
@@ -105,6 +98,10 @@ async function openChat(id: string) {
   await router.push({ name: 'chat', params: { chatId: id } })
 }
 
+async function goHome() {
+  await router.push({ name: 'home' })
+}
+
 async function toggleBookmark(item: ChatItem) {
   const url = `/api/bookmarks/${item.id}`
   const resp = await fetch(url, { method: item.bookmarked ? 'DELETE' : 'POST' })
@@ -147,13 +144,34 @@ watch(
   font-size: 16px;
   font-weight: 600;
   margin-bottom: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.home-link {
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: #0f766e;
+  cursor: pointer;
+}
+.home-link:hover {
+  text-decoration: underline;
 }
 .nav-section {
   margin-top: 18px;
   font-size: 12px;
   color: var(--muted);
 }
-.nav-item {
+.nav-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.nav-link {
   display: grid;
   gap: 6px;
   padding: 10px 10px;
@@ -164,8 +182,9 @@ watch(
   color: var(--fg);
   text-align: left;
   cursor: pointer;
+  width: 100%;
 }
-.nav-item:hover {
+.nav-link:hover {
   background: var(--hover);
 }
 .nav-item--active {
@@ -178,10 +197,6 @@ watch(
 .nav-meta {
   font-size: 11px;
   color: var(--muted);
-}
-.nav-actions {
-  display: flex;
-  justify-content: flex-end;
 }
 .nav-action {
   border: 0;

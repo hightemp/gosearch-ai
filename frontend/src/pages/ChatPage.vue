@@ -15,18 +15,18 @@
     <div v-if="activeTab === 'answer'" class="answer">
       <div class="answer-title">Ответ</div>
       <div class="answer-card">
-        <div v-if="!answerText" class="steps-card">
-          <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
-          <div v-for="(st, idx) in steps" :key="idx" class="step">
-            <div class="step-type">{{ st.type }}</div>
-            <div class="step-title">{{ st.title }}</div>
-          </div>
-        </div>
-        <div v-else class="message-list">
+        <div v-if="messages.length" class="message-list">
           <div v-for="msg in messages" :key="msg.id" class="message" :class="`message--${msg.role}`">
             <div class="message-role">{{ msg.roleLabel }}</div>
             <div class="message-body" v-if="msg.role === 'assistant'" v-html="msg.html" />
             <div class="message-body" v-else>{{ msg.content }}</div>
+          </div>
+        </div>
+        <div v-else class="steps-card">
+          <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
+          <div v-for="(st, idx) in steps" :key="idx" class="step">
+            <div class="step-type">{{ st.type }}</div>
+            <div class="step-title">{{ st.title }}</div>
           </div>
         </div>
       </div>
@@ -103,7 +103,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 type Step = { type: string; title: string; payload: any; created_at?: string }
@@ -112,6 +112,10 @@ type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
+type ChatMeta = { last_run_id?: string }
+type RunStep = { type: string; title: string; payload: any; created_at?: string }
+type RunSource = { url: string; title?: string }
+type RunSnippet = { url: string; quote: string; ref: number }
 
 const route = useRoute()
 const router = useRouter()
@@ -126,7 +130,7 @@ const sourceTitles = ref<Record<string, string>>({})
 const followup = ref('')
 const eventSource = ref<EventSource | null>(null)
 const currentChatId = ref('')
-const initialHandled = ref(false)
+const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
 
 const statusText = computed(() => {
@@ -242,12 +246,75 @@ async function startRun(queryText: string, model: string, chatId?: string) {
 }
 
 onMounted(() => {
+  void hydrateFromRoute()
+})
+
+watch(
+  () => [route.params.chatId, route.query.q],
+  () => {
+    void hydrateFromRoute()
+  }
+)
+
+async function hydrateFromRoute() {
   const q = String(route.query.q || '').trim()
   const model = String(route.query.model || '').trim()
-  if (!q || initialHandled.value) return
-  initialHandled.value = true
-  void startRun(q, model)
-})
+  const chatId = String(route.params.chatId || '').trim()
+  if (q) {
+    if (q !== lastQuery.value) {
+      lastQuery.value = q
+      await startRun(q, model, chatId || undefined)
+    }
+    return
+  }
+  if (chatId) {
+    steps.value = []
+    sources.value = []
+    snippets.value = []
+    sourceTitles.value = {}
+    answerText.value = ''
+    currentChatId.value = chatId
+    await loadHistory(chatId)
+    await loadRunData(chatId)
+  }
+}
+
+async function loadRunData(chatId: string) {
+  const metaResp = await fetch(`/api/chats/${chatId}`)
+  if (!metaResp.ok) return
+  const meta = (await metaResp.json()) as ChatMeta
+  const runId = meta.last_run_id
+  if (!runId) return
+
+  const [stepsResp, sourcesResp, snippetsResp] = await Promise.all([
+    fetch(`/api/runs/${runId}/steps`),
+    fetch(`/api/runs/${runId}/sources`),
+    fetch(`/api/runs/${runId}/snippets`)
+  ])
+
+  if (stepsResp.ok) {
+    const data = (await stepsResp.json()) as { items?: RunStep[] }
+    if (Array.isArray(data.items)) {
+      steps.value = data.items as Step[]
+    }
+  }
+  if (sourcesResp.ok) {
+    const data = (await sourcesResp.json()) as { items?: RunSource[] }
+    if (Array.isArray(data.items)) {
+      sources.value = data.items
+      sourceTitles.value = data.items.reduce<Record<string, string>>((acc, item) => {
+        if (item.url && item.title) acc[item.url] = item.title
+        return acc
+      }, {})
+    }
+  }
+  if (snippetsResp.ok) {
+    const data = (await snippetsResp.json()) as { items?: RunSnippet[] }
+    if (Array.isArray(data.items)) {
+      snippets.value = data.items
+    }
+  }
+}
 
 async function submitFollowup() {
   const text = followup.value.trim()
@@ -266,6 +333,8 @@ async function loadHistory(chatId: string) {
   history.value = data.items
     .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
     .map((msg) => ({ id: msg.id, role: msg.role, content: msg.content }))
+  const lastAssistant = [...history.value].reverse().find((msg) => msg.role === 'assistant')
+  answerText.value = lastAssistant?.content || ''
 }
 
 function upsertAssistant(content: string) {

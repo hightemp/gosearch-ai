@@ -17,6 +17,15 @@ type chatListItem struct {
 	UpdatedAt  time.Time `json:"updated_at"`
 }
 
+type chatMeta struct {
+	ID        string    `json:"id"`
+	Title     string    `json:"title"`
+	Pinned    bool      `json:"pinned"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	LastRunID string    `json:"last_run_id"`
+}
+
 type bookmarkItem struct {
 	ID           string    `json:"id"`
 	Title        string    `json:"title"`
@@ -116,6 +125,41 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{"items": items, "limit": limit, "offset": offset})
+}
+
+func (s *Server) handleGetChat(w http.ResponseWriter, r *http.Request) {
+	user := userFromCtx(r.Context())
+	if user == nil {
+		writeErr(w, http.StatusUnauthorized, "auth required")
+		return
+	}
+
+	chatID := chi.URLParam(r, "chatID")
+	if chatID == "" {
+		writeErr(w, http.StatusBadRequest, "chatID is required")
+		return
+	}
+
+	var item chatMeta
+	var lastRunID *string
+	err := s.pool.QueryRow(
+		r.Context(),
+		`select c.id, c.title, c.pinned, c.created_at, c.updated_at,
+			(select r.id from runs r where r.chat_id=c.id order by r.started_at desc limit 1) as last_run_id
+		 from chats c
+		 where c.id=$1 and c.user_id=$2 and c.deleted_at is null`,
+		chatID,
+		user.ID,
+	).Scan(&item.ID, &item.Title, &item.Pinned, &item.CreatedAt, &item.UpdatedAt, &lastRunID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "chat not found")
+		return
+	}
+	if lastRunID != nil {
+		item.LastRunID = *lastRunID
+	}
+
+	writeJSON(w, http.StatusOK, item)
 }
 
 func (s *Server) handleCreateBookmark(w http.ResponseWriter, r *http.Request) {
