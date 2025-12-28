@@ -1,46 +1,72 @@
 services:
+  proxy_mux:
+    image: ${PROXY_MUX_IMAGE:-hightemp/go_proxy_mux:1.0.2}
+    ports:
+      - "${PROXY_MUX_PORT_HOST:-8380}:${PROXY_MUX_PORT_CONTAINER:-8380}"
+    volumes:
+      - ${PROXY_MUX_CONFIG_PATH_HOST:-./proxy_mux/config.yaml}:${PROXY_MUX_CONFIG_PATH_CONTAINER:-/root/config.yaml}:ro
+    restart: always
+    networks:
+      - internal
+
   postgres:
-    image: postgres:16-alpine
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gosearch}
       POSTGRES_USER: ${POSTGRES_USER:-gosearch}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gosearch}
     ports:
-      - "5434:5432"
+      - "${POSTGRES_PORT_HOST:-5434}:${POSTGRES_PORT_CONTAINER:-5432}"
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      - ${POSTGRES_DATA_VOLUME:-pg_data}:/var/lib/postgresql/data
+    networks:
+      - internal
 
   searxng:
-    image: searxng/searxng:latest
+    image: ${SEARXNG_IMAGE:-searxng/searxng:latest}
     environment:
-      SEARXNG_BASE_URL: http://localhost:8082/
+      SEARXNG_BASE_URL: ${SEARXNG_BASE_URL:-http://localhost:8082/}
     volumes:
-      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+      - ${SEARXNG_SETTINGS_PATH:-./searxng/settings.yml}:${SEARXNG_SETTINGS_CONTAINER_PATH:-/etc/searxng/settings.yml}:ro
     ports:
-      - "8083:8080"
+      - "${SEARXNG_PORT_HOST:-8083}:${SEARXNG_PORT_CONTAINER:-8080}"
+    networks:
+      - internal
 
   backend:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ${BACKEND_BUILD_CONTEXT:-../backend}
+      dockerfile: ${BACKEND_DOCKERFILE:-Dockerfile}
     env_file:
-      - ../.env
+      - ${BACKEND_ENV_FILE:-./.env}
+    environment:
+      APP_CONFIG_PATH: ${BACKEND_CONFIG_PATH_CONTAINER:-/app/config.yaml}
     depends_on:
       - postgres
       - searxng
+      - proxy_mux
     ports:
-      - "8084:8081"
+      - "${BACKEND_PORT_HOST:-8084}:${BACKEND_PORT_CONTAINER:-8081}"
+    volumes:
+      - ${BACKEND_CONFIG_PATH_HOST:-./config.yaml}:${BACKEND_CONFIG_PATH_CONTAINER:-/app/config.yaml}:ro
+    networks:
+      - internal
 
   frontend:
     build:
-      context: ../frontend
-      dockerfile: Dockerfile
+      context: ${FRONTEND_BUILD_CONTEXT:-../frontend}
+      dockerfile: ${FRONTEND_DOCKERFILE:-Dockerfile}
     environment:
-      VITE_API_BASE_URL: /api
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
     depends_on:
       - backend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT_HOST:-3000}:${FRONTEND_PORT_CONTAINER:-80}"
+    networks:
+      - internal
 
 volumes:
   pg_data:
+
+networks:
+  internal:

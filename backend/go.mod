@@ -10,6 +10,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.5
 	github.com/pressly/goose/v3 v3.25.0
 	github.com/rs/zerolog v1.34.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

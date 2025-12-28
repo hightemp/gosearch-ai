@@ -60,7 +60,7 @@ type openRouterChunk struct {
 }
 
 func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.PipelineTimeout)
 	defer cancel()
 
 	s.logger.Debug().Str("run_id", runID).Str("model", model).Msg("pipeline start")
@@ -77,7 +77,7 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 		return
 	}
 
-	selected := selectSources(results, 5)
+	selected := selectSources(results, s.cfg.SearchMaxSources)
 	s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
 		"urls": urlsFromResults(selected),
 	})
@@ -115,7 +115,7 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 }
 
 func (s *Server) searchAll(ctx context.Context, runID, query string) ([]searchResult, error) {
-	queries := buildSearchQueries(query, 3)
+	queries := buildSearchQueries(query, s.cfg.SearchMaxQueries)
 	all := make([]searchResult, 0, len(queries)*10)
 	for idx, q := range queries {
 		s.logger.Debug().Str("run_id", runID).Int("query_index", idx+1).Str("query", q).Msg("search query")
@@ -159,7 +159,7 @@ func (s *Server) searchSearx(ctx context.Context, runID, query string, queryInde
 	}
 	req.Header.Set("User-Agent", "gosearch-ai/0.1")
 
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{Timeout: s.cfg.SearchTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("searxng request failed")
@@ -288,10 +288,10 @@ func (s *Server) persistSources(ctx context.Context, runID string, selected []se
 }
 
 func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sourceRecord) ([]snippetRecord, error) {
-	client := &http.Client{Timeout: 20 * time.Second}
+	client := &http.Client{Timeout: s.cfg.FetchTimeout}
 	snippets := make([]snippetRecord, 0, 12)
 	ref := 1
-	cacheTTL := 24 * time.Hour
+	cacheTTL := s.cfg.PageCacheTTL
 
 	for i := range sources {
 		source := &sources[i]
@@ -319,7 +319,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 
 			snips := cached.Snippets
 			if len(snips) == 0 {
-				snips = extractSnippets(cached.Content, 3)
+				snips = extractSnippets(cached.Content, s.cfg.SnippetMaxPerSource)
 				_ = s.upsertPageCache(ctx, source.URL, cached.Title, cached.Content, snips)
 			}
 			for _, snip := range snips {
@@ -374,7 +374,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 			"length": len(text),
 		})
 
-		snips := extractSnippets(text, 3)
+		snips := extractSnippets(text, s.cfg.SnippetMaxPerSource)
 		if err := s.upsertPageCache(ctx, source.URL, title, text, snips); err != nil {
 			s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("cache upsert failed")
 		}
@@ -467,7 +467,7 @@ func (s *Server) generateAnswer(ctx context.Context, runID, query, model string,
 	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
 	req.Header.Set("X-Title", "gosearch-ai")
 
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter request failed")

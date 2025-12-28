@@ -12,7 +12,15 @@ cp .env.example .env
 
 2) Set `OPENROUTER_API_KEY` in `.env`.
 
-3) Run:
+3) Configure models in `config.yaml`:
+
+```yaml
+openrouter:
+  models:
+    - openai/gpt-4.1-mini
+```
+
+4) Run:
 
 ```bash
 docker compose -f docker/docker-compose.yml up --build

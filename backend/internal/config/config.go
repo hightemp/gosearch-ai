@@ -1,10 +1,14 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -23,6 +27,21 @@ type Config struct {
 	OpenRouterModels  []string
 
 	SearxNGBaseURL string
+
+	PipelineTimeout     time.Duration
+	SearchTimeout       time.Duration
+	FetchTimeout        time.Duration
+	OpenRouterTimeout   time.Duration
+	SearchMaxQueries    int
+	SearchMaxSources    int
+	SnippetMaxPerSource int
+	PageCacheTTL        time.Duration
+}
+
+type fileConfig struct {
+	OpenRouter struct {
+		Models []string `yaml:"models"`
+	} `yaml:"openrouter"`
 }
 
 func LoadFromEnv() (Config, error) {
@@ -55,9 +74,39 @@ func LoadFromEnv() (Config, error) {
 
 	c.OpenRouterAPIKey = getenv("OPENROUTER_API_KEY", "")
 	c.OpenRouterBaseURL = getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
-	c.OpenRouterModels = splitComma(getenv("OPENROUTER_MODELS", "openai/gpt-4.1-mini"))
+	models, err := loadModelsFromFile()
+	if err != nil {
+		return Config{}, err
+	}
+	c.OpenRouterModels = models
 
 	c.SearxNGBaseURL = getenv("SEARXNG_BASE_URL", "http://searxng:8080")
+
+	if c.PipelineTimeout, err = parseDurationEnv("PIPELINE_TIMEOUT", "120s"); err != nil {
+		return Config{}, err
+	}
+	if c.SearchTimeout, err = parseDurationEnv("SEARCH_TIMEOUT", "20s"); err != nil {
+		return Config{}, err
+	}
+	if c.FetchTimeout, err = parseDurationEnv("FETCH_TIMEOUT", "20s"); err != nil {
+		return Config{}, err
+	}
+	if c.OpenRouterTimeout, err = parseDurationEnv("OPENROUTER_TIMEOUT", "60s"); err != nil {
+		return Config{}, err
+	}
+	if c.PageCacheTTL, err = parseDurationEnv("PAGE_CACHE_TTL", "24h"); err != nil {
+		return Config{}, err
+	}
+
+	if c.SearchMaxQueries, err = parseIntEnv("SEARCH_MAX_QUERIES", 3); err != nil {
+		return Config{}, err
+	}
+	if c.SearchMaxSources, err = parseIntEnv("SEARCH_MAX_SOURCES", 5); err != nil {
+		return Config{}, err
+	}
+	if c.SnippetMaxPerSource, err = parseIntEnv("SNIPPET_MAX_PER_SOURCE", 3); err != nil {
+		return Config{}, err
+	}
 
 	return c, nil
 }
@@ -69,15 +118,66 @@ func getenv(k, def string) string {
 	return def
 }
 
-func splitComma(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p == "" {
+func loadModelsFromFile() ([]string, error) {
+	explicit := strings.TrimSpace(os.Getenv("APP_CONFIG_PATH"))
+	if explicit != "" {
+		return readModels(explicit)
+	}
+
+	candidates := []string{"config.yaml", "../config.yaml"}
+	for _, path := range candidates {
+		models, err := readModels(path)
+		if err == nil {
+			return models, nil
+		}
+		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}
-		out = append(out, p)
+		return nil, err
 	}
-	return out
+	return nil, fmt.Errorf("config.yaml not found (set APP_CONFIG_PATH)")
+}
+
+func readModels(path string) ([]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var fc fileConfig
+	if err := yaml.Unmarshal(data, &fc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", path, err)
+	}
+	models := make([]string, 0, len(fc.OpenRouter.Models))
+	for _, model := range fc.OpenRouter.Models {
+		model = strings.TrimSpace(model)
+		if model == "" {
+			continue
+		}
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("no openrouter.models in %s", path)
+	}
+	return models, nil
+}
+
+func parseDurationEnv(key, def string) (time.Duration, error) {
+	raw := getenv(key, def)
+	parsed, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return parsed, nil
+}
+
+func parseIntEnv(key string, def int) (int, error) {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return def, nil
+	}
+	val, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", key, err)
+	}
+	return val, nil
 }
