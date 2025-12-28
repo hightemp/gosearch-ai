@@ -78,15 +78,20 @@
     </div>
 
     <div class="composer">
-      <input class="composer-input" placeholder="Добавить детали или пояснения…" />
-      <button class="composer-send">→</button>
+      <input
+        v-model="followup"
+        class="composer-input"
+        placeholder="Добавить детали или пояснения…"
+        @keydown.enter.exact.prevent="submitFollowup"
+      />
+      <button class="composer-send" :disabled="!followup.trim()" @click="submitFollowup">→</button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 
 type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
@@ -95,6 +100,7 @@ type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string }
 
 const route = useRoute()
+const router = useRouter()
 const steps = ref<Step[]>([])
 const sources = ref<Source[]>([])
 const snippets = ref<Snippet[]>([])
@@ -103,6 +109,10 @@ const isRunning = ref(false)
 const answerText = ref('')
 const activeTab = ref<'answer' | 'links' | 'images'>('answer')
 const sourceTitles = ref<Record<string, string>>({})
+const followup = ref('')
+const eventSource = ref<EventSource | null>(null)
+const currentChatId = ref('')
+const initialHandled = ref(false)
 
 const statusText = computed(() => {
   if (isRunning.value) return 'Активен…'
@@ -120,10 +130,8 @@ const sourceDetails = computed(() =>
 
 const answerHtml = computed(() => renderMarkdown(answerText.value, sources.value))
 
-async function start() {
-  const q = String(route.query.q || '').trim()
-  const model = String(route.query.model || '').trim()
-  if (!q) return
+async function startRun(queryText: string, model: string, chatId?: string) {
+  if (!queryText) return
 
   steps.value = []
   sources.value = []
@@ -131,10 +139,14 @@ async function start() {
   sourceTitles.value = {}
   answerText.value = ''
   isRunning.value = true
+  if (eventSource.value) {
+    eventSource.value.close()
+    eventSource.value = null
+  }
   const resp = await fetch('/api/runs/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: q, model })
+    body: JSON.stringify({ query: queryText, model, chat_id: chatId })
   })
   if (!resp.ok) {
     isRunning.value = false
@@ -142,8 +154,15 @@ async function start() {
   }
   const data = await resp.json()
   runId.value = data.run_id
+  if (!currentChatId.value) {
+    currentChatId.value = data.chat_id
+    if (String(route.params.chatId) !== currentChatId.value) {
+      await router.replace({ name: 'chat', params: { chatId: currentChatId.value }, query: { model } })
+    }
+  }
 
   const es = new EventSource(`/api/runs/${runId.value}/stream`)
+  eventSource.value = es
 
   es.addEventListener('step', (ev: MessageEvent) => {
     const obj = JSON.parse(ev.data) as Step
@@ -192,8 +211,21 @@ async function start() {
 }
 
 onMounted(() => {
-  void start()
+  const q = String(route.query.q || '').trim()
+  const model = String(route.query.model || '').trim()
+  if (!q || initialHandled.value) return
+  initialHandled.value = true
+  void startRun(q, model)
 })
+
+async function submitFollowup() {
+  const text = followup.value.trim()
+  if (!text || isRunning.value) return
+  followup.value = ''
+  const model = String(route.query.model || '').trim()
+  const chatId = currentChatId.value || String(route.params.chatId || '').trim()
+  await startRun(text, model, chatId || undefined)
+}
 
 function getDomain(url: string) {
   try {

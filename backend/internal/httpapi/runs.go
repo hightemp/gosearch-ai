@@ -112,6 +112,17 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, http.StatusInternalServerError, fmt.Sprintf("create chat: %v", err))
 			return
 		}
+	} else {
+		var exists string
+		if err := s.pool.QueryRow(
+			r.Context(),
+			`select id from chats where id=$1 and user_id=$2 and deleted_at is null`,
+			chatID,
+			user.ID,
+		).Scan(&exists); err != nil {
+			writeErr(w, http.StatusNotFound, "chat not found")
+			return
+		}
 	}
 
 	runID := uuid.New().String()
@@ -123,6 +134,7 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	}
 
 	_, _ = s.pool.Exec(r.Context(), `insert into messages(chat_id,user_id,role,content) values ($1,$2,'user',$3)`, chatID, user.ID, q)
+	_, _ = s.pool.Exec(r.Context(), `update chats set updated_at=now() where id=$1`, chatID)
 
 	s.logger.Info().Str("run_id", runID).Str("chat_id", chatID).Str("model", model).Msg("run started")
 

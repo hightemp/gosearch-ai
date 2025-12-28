@@ -7,7 +7,7 @@
 - **Поиск + синтез ответа**: на входе пользовательский вопрос, на выходе — структурированный ответ, подкреплённый **цитатами/ссылками**.
 - **Прозрачный трейс выполнения**: пользователь видит **все поисковые запросы**, **все результаты**, **все прочитанные страницы** и **извлечённые цитаты** *до* того, как система публикует финальный ответ.
 - **Streaming UI как в оригинале**: прогресс, шаги, источники, потоковая генерация ответа.
-- **Выбор модели в интерфейсе**: модели берутся из OpenRouter (список задаётся env).
+- **Выбор модели в интерфейсе**: модели берутся из OpenRouter, список задаётся в `docker/config.yaml`.
 
 Важно: «ход рассуждений» показываем **в безопасном формате**:
 
@@ -20,7 +20,7 @@
 - Frontend: Vue 3 + Vite
 - Поиск: SearxNG
 - Хранилище: Postgres
-- Инфраструктура: Docker Compose
+- Инфраструктура: Docker Compose + Proxy Mux
 - LLM: OpenRouter (совместимый с OpenAI API)
 
 Скелет уже поднят (см. [`docker/docker-compose.yml`](../docker/docker-compose.yml:1)).
@@ -35,14 +35,15 @@
 - Запуск run и SSE-стрим:
   - [`handleRunStart()`](../backend/internal/httpapi/runs.go:81) создаёт chat/run/message
   - [`handleRunStream()`](../backend/internal/httpapi/runs.go:128) стримит шаги и answer.*
-  - Демо-пайплайн: [`runDemoPipeline()`](../backend/internal/httpapi/runs.go:213)
-- Список моделей (из env): [`handleListModels()`](../backend/internal/httpapi/handlers_models.go:5)
+  - Реальный пайплайн: поиск → чтение → цитаты → ответ (см. [`pipeline.go`](../backend/internal/httpapi/pipeline.go:1))
+- Список моделей (из config.yaml): [`handleListModels()`](../backend/internal/httpapi/handlers_models.go:5)
+- API библиотеки: `GET /chats`, `GET /chats/{id}/messages`, `GET /bookmarks`, `POST/DELETE /bookmarks/{chatID}`
 
 ### Frontend
 
 - Макет, близкий к «Perplexity pro» (sidebar + центр): [`frontend/src/App.vue`](../frontend/src/App.vue:1)
-- Главная страница с инпутом и выбором модели (пока мок): [`frontend/src/pages/HomePage.vue`](../frontend/src/pages/HomePage.vue:1)
-- Страница чата: подключение SSE и отображение шагов/источников (пока без ответа): [`frontend/src/pages/ChatPage.vue`](../frontend/src/pages/ChatPage.vue:1)
+- Главная страница с инпутом и выбором модели: [`frontend/src/pages/HomePage.vue`](../frontend/src/pages/HomePage.vue:1)
+- Страница чата: SSE, шаги, источники, потоковый ответ, рендер markdown и ссылки: [`frontend/src/pages/ChatPage.vue`](../frontend/src/pages/ChatPage.vue:1)
 
 ## 4) UX/поведение (ориентир на оригинал)
 
@@ -79,7 +80,7 @@
 2) **QueryRewriterAgent** — превращает вопрос в 1..N запросов для SearxNG.
 3) **SearchAgent** — обращается к SearxNG, собирает результаты.
 4) **Ranker/SelectorAgent** — выбирает top-K источников (дедуп по домену/URL, антиспам, типы сайтов).
-5) **ReaderAgent** — скачивает страницы (HTTP GET), делает очистку (readability / boilderplate removal).
+5) **ReaderAgent** — скачивает страницы (HTTP GET), базовая очистка HTML.
 6) **SnippetAgent** — извлекает цитаты/факты, присваивает `ref_id`.
 7) **AnswerAgent** — генерирует ответ с цитированием и ссылками.
 
@@ -138,16 +139,13 @@
 
 Уже есть:
 
-- `GET /models` — список моделей из env (см. [`handleListModels()`](../backend/internal/httpapi/handlers_models.go:5))
+- `GET /models` — список моделей из config.yaml (см. [`handleListModels()`](../backend/internal/httpapi/handlers_models.go:5))
 - `POST /runs/start` — старт выполнения (см. [`handleRunStart()`](../backend/internal/httpapi/runs.go:81))
 - `GET /runs/{runID}/stream` — SSE (см. [`handleRunStream()`](../backend/internal/httpapi/runs.go:128))
 
 Нужно добавить (MVP):
 
-- `GET /chats` (recent)
 - `GET /chats/{id}` (мета)
-- `GET /chats/{id}/messages`
-- `POST /bookmarks/{chatID}` / `DELETE /bookmarks/{chatID}`
 
 Опционально (для детального UI по источникам):
 
@@ -164,6 +162,7 @@
 - `run_steps` — сериализованные события/шаги
 - `search_queries` + `search_results` — все запросы и результаты
 - `sources` + `page_snippets` — прочитанные страницы и извлечённые цитаты
+- `page_cache` — кэш прочитанных страниц и цитат
 
 ## 9) План реализации (этапы)
 
@@ -172,8 +171,8 @@
 Backend:
 
 - Реальный клиент SearxNG + сохранение search_*.
-- ReaderAgent (fetch + readability) + сохранение sources/page_snippets.
-- OpenRouter клиент + streaming completion.
+- ReaderAgent (fetch + очистка HTML) + сохранение sources/page_snippets.
+- OpenRouter клиент + streaming completion (через Proxy Mux).
 - Генерация ответа с привязкой `[n]` → `sources[n]`.
 - SSE шаги соответствуют UX.
 
@@ -195,4 +194,3 @@ Frontend:
 - JWT auth (заменить dev-auth).
 - Rate limiting, timeouts, caching.
 - Sanitization HTML/markdown, allowlist доменов (опционально).
-

@@ -36,6 +36,7 @@ type Config struct {
 	SearchMaxSources    int
 	SnippetMaxPerSource int
 	PageCacheTTL        time.Duration
+	ChatHistoryLimit    int
 }
 
 type fileConfig struct {
@@ -105,6 +106,9 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 	if c.SnippetMaxPerSource, err = parseIntEnv("SNIPPET_MAX_PER_SOURCE", 3); err != nil {
+		return Config{}, err
+	}
+	if c.ChatHistoryLimit, err = parseIntEnv("CHAT_HISTORY_LIMIT", 12); err != nil {
 		return Config{}, err
 	}
 

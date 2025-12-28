@@ -45,6 +45,11 @@ type snippetRecord struct {
 	Ref   int
 }
 
+type chatMessage struct {
+	Role    string
+	Content string
+}
+
 type cachedPage struct {
 	Title     string
 	Content   string
@@ -96,7 +101,13 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 		return
 	}
 
-	answer, err := s.generateAnswer(ctx, runID, query, model, sources, snippets)
+	history, err := s.loadChatHistory(ctx, runID, s.cfg.ChatHistoryLimit)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("run_id", runID).Msg("load chat history failed")
+	}
+	history = trimHistory(history, query)
+
+	answer, err := s.generateAnswer(ctx, runID, query, model, sources, snippets, history)
 	if err != nil {
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("answer generation failed")
 		s.finalizeRun(ctx, runID, "answer error: "+err.Error())
@@ -450,19 +461,40 @@ func (s *Server) storeSnippet(ctx context.Context, sourceID, quote string) error
 	return err
 }
 
-func (s *Server) generateAnswer(ctx context.Context, runID, query, model string, sources []sourceRecord, snippets []snippetRecord) (string, error) {
+func (s *Server) generateAnswer(ctx context.Context, runID, query, model string, sources []sourceRecord, snippets []snippetRecord, history []chatMessage) (string, error) {
 	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
 		s.logger.Debug().Str("run_id", runID).Msg("openrouter disabled, using fallback answer")
 		return fallbackAnswer(query, snippets), nil
 	}
 
+	messages := make([]map[string]any, 0, len(history)+2)
+	messages = append(messages, map[string]any{
+		"role":    "system",
+		"content": "You are a research assistant. Use only the provided sources and cite them as [n]. Keep the answer concise and structured in Markdown.",
+	})
+	for _, msg := range history {
+		role := strings.TrimSpace(msg.Role)
+		if role != "user" && role != "assistant" && role != "system" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		messages = append(messages, map[string]any{
+			"role":    role,
+			"content": content,
+		})
+	}
+	messages = append(messages, map[string]any{
+		"role":    "user",
+		"content": buildPrompt(query, sources, snippets),
+	})
+
 	reqBody := map[string]any{
-		"model":  model,
-		"stream": true,
-		"messages": []map[string]any{
-			{"role": "system", "content": "You are a research assistant. Use only the provided sources and cite them as [n]. Keep the answer concise and structured in Markdown."},
-			{"role": "user", "content": buildPrompt(query, sources, snippets)},
-		},
+		"model":    model,
+		"stream":   true,
+		"messages": messages,
 	}
 	payload, _ := json.Marshal(reqBody)
 
@@ -537,6 +569,51 @@ func (s *Server) storeAssistantMessage(ctx context.Context, runID, answer string
 	}
 	_, err := s.pool.Exec(ctx, `insert into messages(chat_id, user_id, role, content) select $1, user_id, 'assistant', $2 from runs where id=$3`, chatID, answer, runID)
 	return err
+}
+
+func (s *Server) loadChatHistory(ctx context.Context, runID string, limit int) ([]chatMessage, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := s.pool.Query(
+		ctx,
+		`select role, content from (
+			select m.role, m.content, m.created_at
+			from messages m
+			join runs r on r.chat_id = m.chat_id
+			where r.id=$1
+			order by m.created_at desc
+			limit $2
+		) t
+		order by created_at asc`,
+		runID,
+		limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]chatMessage, 0, limit)
+	for rows.Next() {
+		var item chatMessage
+		if err := rows.Scan(&item.Role, &item.Content); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func trimHistory(history []chatMessage, query string) []chatMessage {
+	if len(history) == 0 {
+		return history
+	}
+	last := history[len(history)-1]
+	if strings.TrimSpace(last.Role) == "user" && strings.TrimSpace(last.Content) == strings.TrimSpace(query) {
+		return history[:len(history)-1]
+	}
+	return history
 }
 
 func (s *Server) finalizeRun(ctx context.Context, runID, errMsg string) {
