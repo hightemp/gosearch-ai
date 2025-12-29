@@ -308,7 +308,7 @@ async function hydrateFromRoute() {
   if (q) {
     if (q !== lastQuery.value) {
       lastQuery.value = q
-      await startRun(q, model, chatId || undefined)
+      await startRun(q, model)
     }
     return
   }
