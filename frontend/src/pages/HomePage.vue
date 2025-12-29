@@ -7,6 +7,9 @@
 
     <div class="search-card">
       <div class="search-row">
+        <div class="search-icon">
+          <Search class="icon" />
+        </div>
         <input
           v-model="q"
           class="search-input"
@@ -18,7 +21,9 @@
           <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
         </select>
 
-        <button class="send" @click="submit">→</button>
+        <button class="send" @click="submit">
+          <ArrowRight class="icon icon--inverse" />
+        </button>
       </div>
       <div class="hint">Enter — отправить (Shift+Enter добавим позже)</div>
     </div>
@@ -26,6 +31,7 @@
 </template>
 
 <script setup lang="ts">
+import { ArrowRight, Search } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
@@ -107,9 +113,18 @@ onMounted(() => {
 }
 .search-row {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: auto 1fr auto auto;
   gap: 10px;
   align-items: center;
+}
+.search-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  display: grid;
+  place-items: center;
+  color: #0f766e;
 }
 .search-input {
   font-size: 16px;
@@ -136,11 +151,19 @@ onMounted(() => {
   border: 0;
   background: #0f766e;
   color: #fff;
-  font-size: 18px;
   cursor: pointer;
+  display: grid;
+  place-items: center;
 }
 .send:hover {
   filter: brightness(0.95);
+}
+.icon {
+  width: 18px;
+  height: 18px;
+}
+.icon--inverse {
+  color: #fff;
 }
 .hint {
   margin-top: 10px;

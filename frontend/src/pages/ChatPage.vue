@@ -1,10 +1,22 @@
 <template>
   <div class="chat">
     <div class="tabs">
-      <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">Ответ</button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">Шаги</button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">Ссылки</button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">Изображения</button>
+      <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">
+        <MessageSquare class="tab-icon" />
+        Ответ
+      </button>
+      <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">
+        <ListChecks class="tab-icon" />
+        Шаги
+      </button>
+      <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">
+        <Link class="tab-icon" />
+        Ссылки
+      </button>
+      <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">
+        <Image class="tab-icon" />
+        Изображения
+      </button>
     </div>
 
     <div class="progress">
@@ -97,12 +109,15 @@
         placeholder="Добавить детали или пояснения…"
         @keydown.enter.exact.prevent="submitFollowup"
       />
-      <button class="composer-send" :disabled="!followup.trim()" @click="submitFollowup">→</button>
+      <button class="composer-send" :disabled="!followup.trim()" @click="submitFollowup">
+        <ArrowRight class="composer-icon" />
+      </button>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ArrowRight, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -490,10 +505,17 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   padding: 10px 6px;
   cursor: pointer;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .tab--active {
   color: var(--fg);
   border-bottom: 2px solid var(--fg);
+}
+.tab-icon {
+  width: 14px;
+  height: 14px;
 }
 .progress {
   margin-top: 18px;
@@ -790,7 +812,12 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   border: 0;
   background: #0f766e;
   color: #fff;
-  font-size: 18px;
   cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.composer-icon {
+  width: 18px;
+  height: 18px;
 }
 </style>

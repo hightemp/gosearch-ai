@@ -2,11 +2,20 @@
   <div class="layout">
     <aside class="sidebar">
       <div class="brand">
-        <span>Библиотека</span>
-        <button class="home-link" @click="goHome">На главную</button>
+        <span class="brand-title">
+          <Library class="icon icon--brand" />
+          Библиотека
+        </span>
+        <button class="home-link" @click="goHome">
+          <Home class="icon icon--small" />
+          На главную
+        </button>
       </div>
       <nav class="nav">
-        <div class="nav-section">Закладки</div>
+        <div class="nav-section">
+          <Bookmark class="icon icon--small" />
+          Закладки
+        </div>
         <div v-if="!bookmarks.length" class="nav-muted">Пока нет закладок.</div>
         <div v-for="item in bookmarks" :key="item.id" class="nav-row">
           <button class="nav-link" :class="{ 'nav-item--active': isActiveChat(item.id) }" @click="openChat(item.id)">
@@ -15,7 +24,10 @@
           </button>
         </div>
 
-        <div class="nav-section">Недавние</div>
+        <div class="nav-section">
+          <MessageSquare class="icon icon--small" />
+          Недавние
+        </div>
         <div v-if="!recentChats.length" class="nav-muted">Пока нет запросов.</div>
         <div v-for="item in recentChats" :key="item.id" class="nav-row">
           <button class="nav-link" :class="{ 'nav-item--active': isActiveChat(item.id) }" @click="openChat(item.id)">
@@ -23,6 +35,7 @@
             <span class="nav-meta">{{ formatDate(item.updated_at) }}</span>
           </button>
           <button class="nav-action" @click="toggleBookmark(item)">
+            <Bookmark class="icon icon--tiny" :class="{ 'icon--active': item.bookmarked }" />
             {{ item.bookmarked ? 'Убрать' : 'В закладки' }}
           </button>
         </div>
@@ -36,6 +49,7 @@
 </template>
 
 <script setup lang="ts">
+import { Bookmark, Home, Library, MessageSquare } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
@@ -149,12 +163,20 @@ watch(
   align-items: center;
   gap: 10px;
 }
+.brand-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
 .home-link {
   border: 0;
   background: transparent;
   font-size: 11px;
   color: #0f766e;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .home-link:hover {
   text-decoration: underline;
@@ -163,6 +185,9 @@ watch(
   margin-top: 18px;
   font-size: 12px;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .nav-row {
   display: grid;
@@ -204,9 +229,31 @@ watch(
   font-size: 11px;
   color: #0f766e;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .nav-action:hover {
   text-decoration: underline;
+}
+.icon {
+  width: 16px;
+  height: 16px;
+}
+.icon--small {
+  width: 14px;
+  height: 14px;
+}
+.icon--tiny {
+  width: 12px;
+  height: 12px;
+}
+.icon--brand {
+  width: 18px;
+  height: 18px;
+}
+.icon--active {
+  color: #0f766e;
 }
 .nav-muted {
   margin-top: 10px;
