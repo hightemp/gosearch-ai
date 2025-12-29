@@ -78,6 +78,51 @@ func (h *sseHub) get(runID string) *runBroadcaster {
 	return b
 }
 
+func (h *sseHub) subscribe(runID string) chan []byte {
+	b := h.get(runID)
+	return b.subscribe()
+}
+
+func (h *sseHub) unsubscribe(runID string, ch chan []byte) {
+	h.mu.Lock()
+	b := h.pubs[runID]
+	h.mu.Unlock()
+	if b == nil {
+		return
+	}
+
+	b.mu.Lock()
+	_, exists := b.subs[ch]
+	if exists {
+		delete(b.subs, ch)
+	}
+	remaining := len(b.subs)
+	b.mu.Unlock()
+	if exists {
+		close(ch)
+	}
+
+	if remaining > 0 {
+		return
+	}
+
+	h.mu.Lock()
+	if current, ok := h.pubs[runID]; ok && current == b {
+		delete(h.pubs, runID)
+	}
+	h.mu.Unlock()
+}
+
+func (h *sseHub) publish(runID string, payload []byte) {
+	h.mu.Lock()
+	b := h.pubs[runID]
+	h.mu.Unlock()
+	if b == nil {
+		return
+	}
+	b.publish(payload)
+}
+
 func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 	user := userFromCtx(r.Context())
 	if user == nil {
@@ -160,9 +205,8 @@ func (s *Server) handleRunStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	b := globalHub.get(runID)
-	sub := b.subscribe()
-	defer b.unsubscribe(sub)
+	sub := globalHub.subscribe(runID)
+	defer globalHub.unsubscribe(runID, sub)
 
 	// replay existing steps
 	rows, err := s.pool.Query(r.Context(), `select type, title, payload, created_at from run_steps where run_id=$1 order by created_at asc`, runID)
@@ -213,17 +257,17 @@ func (s *Server) publishStep(ctx context.Context, runID, typ, title string, payl
 
 	frame, _ := json.Marshal(map[string]any{"type": typ, "title": title, "payload": payload, "created_at": time.Now()})
 	sse := []byte("event: step\n" + "data: " + string(frame) + "\n\n")
-	globalHub.get(runID).publish(sse)
+	globalHub.publish(runID, sse)
 }
 
 func (s *Server) publishAnswerDelta(runID string, delta string) {
 	frame, _ := json.Marshal(map[string]any{"delta": delta})
 	sse := []byte("event: answer.delta\n" + "data: " + string(frame) + "\n\n")
-	globalHub.get(runID).publish(sse)
+	globalHub.publish(runID, sse)
 }
 
 func (s *Server) publishFinal(runID string, answer string) {
 	frame, _ := json.Marshal(map[string]any{"answer": answer})
 	sse := []byte("event: answer.final\n" + "data: " + string(frame) + "\n\n")
-	globalHub.get(runID).publish(sse)
+	globalHub.publish(runID, sse)
 }

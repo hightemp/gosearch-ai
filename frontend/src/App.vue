@@ -57,6 +57,7 @@
 import { Bookmark, Home, Library, MessageSquare } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { apiFetch } from './api'
 
 type ChatItem = {
   id: string
@@ -89,8 +90,8 @@ async function loadSidebar() {
   isLoading.value = true
   try {
     const [chatsResp, bookmarksResp] = await Promise.all([
-      fetch('/api/chats?limit=20'),
-      fetch('/api/bookmarks?limit=20')
+      apiFetch('/chats?limit=20'),
+      apiFetch('/bookmarks?limit=20')
     ])
     if (chatsResp.ok) {
       const data = (await chatsResp.json()) as { items?: ChatItem[] }
@@ -122,8 +123,8 @@ async function goHome() {
 }
 
 async function toggleBookmark(item: ChatItem) {
-  const url = `/api/bookmarks/${item.id}`
-  const resp = await fetch(url, { method: item.bookmarked ? 'DELETE' : 'POST' })
+  const url = `/bookmarks/${item.id}`
+  const resp = await apiFetch(url, { method: item.bookmarked ? 'DELETE' : 'POST' })
   if (!resp.ok) return
   await loadSidebar()
 }

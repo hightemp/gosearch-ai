@@ -34,6 +34,7 @@
 import { ArrowRight, Search } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { apiFetch } from '../api'
 
 const router = useRouter()
 const q = ref('')
@@ -44,7 +45,7 @@ const isLoadingModels = ref(true)
 
 async function loadModels() {
   try {
-    const resp = await fetch('/api/models')
+    const resp = await apiFetch('/models')
     if (!resp.ok) return
     const data = (await resp.json()) as { models?: string[] }
     if (Array.isArray(data.models)) {

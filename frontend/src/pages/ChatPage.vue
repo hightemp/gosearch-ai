@@ -23,6 +23,7 @@
       <div class="dot" />
       <div class="text">{{ statusText }}</div>
     </div>
+    <div v-if="runError" class="error-text">{{ runError }}</div>
 
     <div v-if="activeTab === 'answer'" class="answer">
       <div class="answer-title">Ответ</div>
@@ -46,6 +47,7 @@
 
     <div v-if="activeTab === 'answer'" class="sources">
       <div class="sources-title">Просмотр источников: {{ sources.length }}</div>
+      <div v-if="showSourcesNote" class="sources-note">Источники показаны для последнего запуска в этом чате.</div>
       <div class="sources-card">
         <div v-if="!sources.length" class="sources-empty">Источники появятся после запуска run (SSE).</div>
         <ul v-else class="sources-list">
@@ -120,6 +122,7 @@
 import { ArrowRight, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { apiFetch, apiUrl } from '../api'
 
 type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
@@ -139,6 +142,7 @@ const sources = ref<Source[]>([])
 const snippets = ref<Snippet[]>([])
 const runId = ref<string>('')
 const isRunning = ref(false)
+const runError = ref('')
 const answerText = ref('')
 const activeTab = ref<'answer' | 'steps' | 'links' | 'images'>('answer')
 const sourceTitles = ref<Record<string, string>>({})
@@ -149,9 +153,26 @@ const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
 
 const statusText = computed(() => {
+  if (runError.value) return 'Ошибка'
   if (isRunning.value) return 'Активен…'
   if (runId.value) return 'Завершено'
   return 'Ожидание…'
+})
+
+const lastAssistantId = computed(() => {
+  for (let i = history.value.length - 1; i >= 0; i -= 1) {
+    if (history.value[i].role === 'assistant') return history.value[i].id
+  }
+  return ''
+})
+
+const citationSources = computed<Source[]>(() => {
+  if (!snippets.value.length) return []
+  const ordered = [...snippets.value].sort((a, b) => a.ref - b.ref)
+  return ordered.map((snip) => ({
+    url: snip.url,
+    title: sourceTitles.value[snip.url] || ''
+  }))
 })
 
 const sourceDetails = computed(() =>
@@ -165,14 +186,19 @@ const sourceDetails = computed(() =>
 const messages = computed(() => {
   return history.value.map((msg) => {
     const roleLabel = msg.role === 'assistant' ? 'Ассистент' : 'Вы'
-    const html = msg.role === 'assistant' ? renderMarkdown(msg.content, sources.value) : ''
+    const isLatestAssistant = msg.id === lastAssistantId.value
+    const citations = isLatestAssistant ? citationSources.value : []
+    const html = msg.role === 'assistant' ? renderMarkdown(msg.content, citations) : ''
     return { ...msg, roleLabel, html }
   })
 })
 
+const showSourcesNote = computed(() => history.value.filter((msg) => msg.role === 'assistant').length > 1)
+
 async function startRun(queryText: string, model: string, chatId?: string) {
   if (!queryText) return
 
+  runError.value = ''
   if (!chatId) {
     steps.value = []
     sources.value = []
@@ -186,13 +212,14 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     eventSource.value.close()
     eventSource.value = null
   }
-  const resp = await fetch('/api/runs/start', {
+  const resp = await apiFetch('/runs/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query: queryText, model, chat_id: chatId })
   })
   if (!resp.ok) {
     isRunning.value = false
+    runError.value = 'Не удалось запустить поиск.'
     return
   }
   const data = await resp.json()
@@ -209,7 +236,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     await loadHistory(currentChatId.value)
   }
 
-  const es = new EventSource(`/api/runs/${runId.value}/stream`)
+  const es = new EventSource(apiUrl(`/runs/${runId.value}/stream`))
   eventSource.value = es
 
   es.addEventListener('step', (ev: MessageEvent) => {
@@ -235,6 +262,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
       snippets.value = payloadSnippets
         .filter((snip) => snip?.url && snip?.quote)
         .map((snip) => ({ url: snip.url, quote: snip.quote, ref: Number(snip.ref) || 0 }))
+        .sort((a, b) => a.ref - b.ref)
     }
   })
 
@@ -257,6 +285,8 @@ async function startRun(queryText: string, model: string, chatId?: string) {
 
   es.onerror = () => {
     isRunning.value = false
+    runError.value = 'Потеряно соединение SSE. Обновите страницу и попробуйте снова.'
+    es.close()
   }
 }
 
@@ -289,22 +319,24 @@ async function hydrateFromRoute() {
     sourceTitles.value = {}
     answerText.value = ''
     currentChatId.value = chatId
+    runError.value = ''
     await loadHistory(chatId)
     await loadRunData(chatId)
   }
 }
 
 async function loadRunData(chatId: string) {
-  const metaResp = await fetch(`/api/chats/${chatId}`)
+  const metaResp = await apiFetch(`/chats/${chatId}`)
   if (!metaResp.ok) return
   const meta = (await metaResp.json()) as ChatMeta
-  const runId = meta.last_run_id
-  if (!runId) return
+  const lastRunId = meta.last_run_id
+  if (!lastRunId) return
+  runId.value = lastRunId
 
   const [stepsResp, sourcesResp, snippetsResp] = await Promise.all([
-    fetch(`/api/runs/${runId}/steps`),
-    fetch(`/api/runs/${runId}/sources`),
-    fetch(`/api/runs/${runId}/snippets`)
+    apiFetch(`/runs/${lastRunId}/steps`),
+    apiFetch(`/runs/${lastRunId}/sources`),
+    apiFetch(`/runs/${lastRunId}/snippets`)
   ])
 
   if (stepsResp.ok) {
@@ -326,7 +358,7 @@ async function loadRunData(chatId: string) {
   if (snippetsResp.ok) {
     const data = (await snippetsResp.json()) as { items?: RunSnippet[] }
     if (Array.isArray(data.items)) {
-      snippets.value = data.items
+      snippets.value = [...data.items].sort((a, b) => a.ref - b.ref)
     }
   }
 }
@@ -341,7 +373,7 @@ async function submitFollowup() {
 }
 
 async function loadHistory(chatId: string) {
-  const resp = await fetch(`/api/chats/${chatId}/messages?limit=50`)
+  const resp = await apiFetch(`/chats/${chatId}/messages?limit=50`)
   if (!resp.ok) return
   const data = (await resp.json()) as { items?: ChatMessage[] }
   if (!Array.isArray(data.items)) return
@@ -523,6 +555,11 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   align-items: center;
   gap: 10px;
 }
+.error-text {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b91c1c;
+}
 .answer {
   margin-top: 16px;
 }
@@ -663,6 +700,11 @@ function renderMarkdown(input: string, sourceList: Source[]) {
 .sources-title {
   font-size: 12px;
   color: var(--muted);
+  margin-bottom: 8px;
+}
+.sources-note {
+  font-size: 12px;
+  color: #6b7280;
   margin-bottom: 8px;
 }
 .sources-card {
