@@ -34,9 +34,14 @@
             <span class="nav-title">{{ item.title || 'Без названия' }}</span>
             <span class="nav-meta">{{ formatDate(item.updated_at) }}</span>
           </button>
-          <button class="nav-action" @click="toggleBookmark(item)">
-            <Bookmark class="icon icon--tiny" :class="{ 'icon--active': item.bookmarked }" />
-            {{ item.bookmarked ? 'Убрать' : 'В закладки' }}
+          <button
+            class="nav-action"
+            :class="{ 'nav-action--active': item.bookmarked }"
+            :title="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+            :aria-label="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+            @click="toggleBookmark(item)"
+          >
+            <Bookmark class="icon icon--tiny" />
           </button>
         </div>
       </nav>
@@ -232,9 +237,15 @@ watch(
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
 }
 .nav-action:hover {
-  text-decoration: underline;
+  background: var(--hover);
+}
+.nav-action--active {
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
 }
 .icon {
   width: 16px;
