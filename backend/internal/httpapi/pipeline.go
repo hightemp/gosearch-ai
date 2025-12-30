@@ -130,7 +130,7 @@ func (s *Server) searchAll(ctx context.Context, runID, query string) ([]searchRe
 	all := make([]searchResult, 0, len(queries)*10)
 	for idx, q := range queries {
 		s.logger.Debug().Str("run_id", runID).Int("query_index", idx+1).Str("query", q).Msg("search query")
-		results, err := s.searchSearx(ctx, runID, q, idx+1, len(queries))
+		results, err := s.searchProvider(ctx, runID, q, idx+1, len(queries))
 		if err != nil {
 			return nil, err
 		}
@@ -139,6 +139,17 @@ func (s *Server) searchAll(ctx context.Context, runID, query string) ([]searchRe
 	ranked := rankAndDedup(all)
 	s.logger.Debug().Str("run_id", runID).Int("results", len(ranked)).Msg("search ranked results")
 	return ranked, nil
+}
+
+func (s *Server) searchProvider(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
+	switch strings.ToLower(strings.TrimSpace(s.cfg.SearchProvider)) {
+	case "", "searxng", "searx":
+		return s.searchSearx(ctx, runID, query, queryIndex, totalQueries)
+	case "serper":
+		return s.searchSerper(ctx, runID, query, queryIndex, totalQueries)
+	default:
+		return nil, fmt.Errorf("unknown SEARCH_PROVIDER: %s", s.cfg.SearchProvider)
+	}
 }
 
 func (s *Server) searchSearx(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
@@ -217,6 +228,110 @@ func (s *Server) searchSearx(ctx context.Context, runID, query string, queryInde
 			Score:      scoreResult(rank, queryIndex, rawURL, title, content),
 		})
 		rank++
+	}
+
+	if err := s.storeSearchResults(ctx, queryID, results); err != nil {
+		s.logger.Error().Err(err).Str("run_id", runID).Msg("store search results failed")
+		return nil, err
+	}
+
+	s.publishStep(ctx, runID, "search.results", "Результаты поиска", map[string]any{
+		"count":       len(results),
+		"query":       query,
+		"query_index": queryIndex,
+		"total":       totalQueries,
+		"results":     normalizeResults(results),
+	})
+
+	return results, nil
+}
+
+func (s *Server) searchSerper(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
+	if strings.TrimSpace(s.cfg.SerperAPIKey) == "" {
+		return nil, fmt.Errorf("SERPER_API_KEY is required for serper provider")
+	}
+
+	s.publishStep(ctx, runID, "search.query", "Поиск", map[string]any{
+		"query":       query,
+		"category":    "general",
+		"query_index": queryIndex,
+		"total":       totalQueries,
+		"provider":    "serper",
+	})
+
+	var queryID string
+	if err := s.pool.QueryRow(ctx, `insert into search_queries(run_id, query, category) values ($1,$2,'general') returning id`, runID, query).Scan(&queryID); err != nil {
+		return nil, err
+	}
+
+	payload := map[string]any{
+		"q":   query,
+		"num": s.cfg.SerperNum,
+		"hl":  s.cfg.SerperHL,
+		"gl":  s.cfg.SerperGL,
+	}
+	body, _ := json.Marshal(payload)
+
+	endpoint := strings.TrimRight(s.cfg.SerperBaseURL, "/") + "/search"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-api-key", s.cfg.SerperAPIKey)
+	req.Header.Set("User-Agent", "gosearch-ai/0.1")
+
+	client := &http.Client{Timeout: s.cfg.SearchTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		s.logger.Error().Err(err).Str("run_id", runID).Msg("serper request failed")
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		s.logger.Error().Int("status", resp.StatusCode).Str("run_id", runID).Msg("serper non-200")
+		return nil, fmt.Errorf("serper status %d: %s", resp.StatusCode, strings.TrimSpace(string(respBody)))
+	}
+
+	var payloadResp struct {
+		Organic []struct {
+			Title    string `json:"title"`
+			Link     string `json:"link"`
+			Snippet  string `json:"snippet"`
+			Position int    `json:"position"`
+		} `json:"organic"`
+	}
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(&payloadResp); err != nil {
+		s.logger.Error().Err(err).Str("run_id", runID).Msg("serper decode failed")
+		return nil, err
+	}
+
+	results := make([]searchResult, 0, len(payloadResp.Organic))
+	for i, item := range payloadResp.Organic {
+		rawURL := strings.TrimSpace(item.Link)
+		if rawURL == "" {
+			continue
+		}
+		rank := item.Position
+		if rank <= 0 {
+			rank = i + 1
+		}
+		canonical := canonicalizeURL(rawURL)
+		rawJSON, _ := json.Marshal(item)
+		results = append(results, searchResult{
+			Title:      item.Title,
+			URL:        rawURL,
+			Canonical:  canonical,
+			Snippet:    item.Snippet,
+			Engine:     "serper",
+			Raw:        rawJSON,
+			Rank:       rank,
+			QueryIndex: queryIndex,
+			Score:      scoreResult(rank, queryIndex, rawURL, item.Title, item.Snippet),
+		})
 	}
 
 	if err := s.storeSearchResults(ctx, queryID, results); err != nil {

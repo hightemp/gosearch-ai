@@ -27,6 +27,7 @@ type Config struct {
 	OpenRouterModels  []string
 
 	SearxNGBaseURL string
+	SearchProvider string
 
 	PipelineTimeout     time.Duration
 	SearchTimeout       time.Duration
@@ -37,6 +38,12 @@ type Config struct {
 	SnippetMaxPerSource int
 	PageCacheTTL        time.Duration
 	ChatHistoryLimit    int
+
+	SerperAPIKey  string
+	SerperBaseURL string
+	SerperNum     int
+	SerperHL      string
+	SerperGL      string
 }
 
 type fileConfig struct {
@@ -82,6 +89,7 @@ func LoadFromEnv() (Config, error) {
 	c.OpenRouterModels = models
 
 	c.SearxNGBaseURL = getenv("SEARXNG_BASE_URL", "http://searxng:8080")
+	c.SearchProvider = strings.ToLower(getenv("SEARCH_PROVIDER", "searxng"))
 
 	if c.PipelineTimeout, err = parseDurationEnv("PIPELINE_TIMEOUT", "120s"); err != nil {
 		return Config{}, err
@@ -111,6 +119,14 @@ func LoadFromEnv() (Config, error) {
 	if c.ChatHistoryLimit, err = parseIntEnv("CHAT_HISTORY_LIMIT", 12); err != nil {
 		return Config{}, err
 	}
+
+	c.SerperAPIKey = strings.TrimSpace(os.Getenv("SERPER_API_KEY"))
+	c.SerperBaseURL = getenv("SERPER_BASE_URL", "https://google.serper.dev")
+	if c.SerperNum, err = parseIntEnv("SERPER_NUM", 10); err != nil {
+		return Config{}, err
+	}
+	c.SerperHL = getenv("SERPER_HL", "en")
+	c.SerperGL = getenv("SERPER_GL", "us")
 
 	return c, nil
 }

@@ -324,15 +324,10 @@ categories_as_tabs:
   social media:
 
 engines:
-  - name: brave
-    engine: brave
-    categories: general
-    shortcut: br
-
-  - name: bing
-    engine: bing
-    categories: general
-    shortcut: bi
+  # - name: bing
+  #   engine: bing
+  #   categories: general
+  #   shortcut: bi
 
   - name: yahoo
     engine: yahoo
