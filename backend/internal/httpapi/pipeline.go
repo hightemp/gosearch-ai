@@ -16,7 +16,10 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/ledongthuc/pdf"
 )
+
+const maxPDFSizeBytes = 25 << 20
 
 type searchResult struct {
 	Title      string
@@ -476,26 +479,71 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": err.Error()})
 			continue
 		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		_ = resp.Body.Close()
-		if err != nil || resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			errMsg := err
-			if errMsg == nil {
-				errMsg = fmt.Errorf("status %d", resp.StatusCode)
-			}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			_ = resp.Body.Close()
+			errMsg := fmt.Errorf("status %d", resp.StatusCode)
 			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page fetch non-200")
 			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": errMsg.Error()})
 			continue
 		}
 
 		contentType := resp.Header.Get("Content-Type")
+		if isPDFContentType(contentType, source.URL) {
+			text, err := extractPDFText(resp.Body, resp.ContentLength)
+			_ = resp.Body.Close()
+			if err != nil {
+				s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("pdf extract failed")
+				s.publishStep(ctx, runID, "page.fetch.error", "Ошибка PDF", map[string]any{"url": source.URL, "error": err.Error()})
+				continue
+			}
+
+			s.publishStep(ctx, runID, "page.fetch.ok", "PDF получен", map[string]any{"url": source.URL, "bytes": len(text), "cached": false})
+
+			text = sanitizeUTF8(text)
+			s.publishStep(ctx, runID, "page.readability.ready", "PDF прочитан", map[string]any{
+				"url":    source.URL,
+				"title":  source.Title,
+				"length": len(text),
+			})
+
+			snips := extractSnippets(text, s.cfg.SnippetMaxPerSource)
+			snips = sanitizeSnippets(snips)
+			if err := s.upsertPageCache(ctx, source.URL, source.Title, text, snips); err != nil {
+				s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("cache upsert failed")
+			}
+			if len(snips) == 0 {
+				continue
+			}
+
+			for _, snip := range snips {
+				if err := s.storeSnippet(ctx, source.ID, snip); err != nil {
+					s.logger.Error().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("store snippet failed")
+					return nil, err
+				}
+				record := snippetRecord{URL: source.URL, Quote: snip, Ref: ref}
+				source.Snippets = append(source.Snippets, record)
+				snippets = append(snippets, record)
+				ref++
+			}
+			continue
+		}
+
 		if !isTextContentType(contentType, source.URL) {
-			// TODO: add PDF reader to extract text/snippets from application/pdf.
+			_ = resp.Body.Close()
 			s.logger.Warn().Str("run_id", runID).Str("url", source.URL).Str("content_type", contentType).Msg("page fetch skipped")
 			s.publishStep(ctx, runID, "page.fetch.skipped", "Пропущен неподдерживаемый тип", map[string]any{
 				"url":          source.URL,
 				"content_type": contentType,
 			})
+			continue
+		}
+
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+		_ = resp.Body.Close()
+		if err != nil {
+			errMsg := err
+			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page fetch non-200")
+			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": errMsg.Error()})
 			continue
 		}
 
@@ -1066,9 +1114,6 @@ func isTextContentType(contentType, rawURL string) bool {
 	if strings.Contains(ct, "text/html") || strings.Contains(ct, "text/plain") || strings.Contains(ct, "application/xhtml+xml") {
 		return true
 	}
-	if strings.HasSuffix(strings.ToLower(rawURL), ".pdf") || strings.Contains(ct, "application/pdf") {
-		return false
-	}
 	if ct == "" {
 		return true
 	}
@@ -1076,4 +1121,52 @@ func isTextContentType(contentType, rawURL string) bool {
 		return true
 	}
 	return false
+}
+
+func isPDFContentType(contentType, rawURL string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.Contains(ct, "application/pdf") {
+		return true
+	}
+	return strings.HasSuffix(strings.ToLower(rawURL), ".pdf")
+}
+
+func extractPDFText(body io.Reader, contentLength int64) (text string, err error) {
+	if contentLength > maxPDFSizeBytes {
+		return "", fmt.Errorf("pdf too large: %d bytes", contentLength)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(body, maxPDFSizeBytes+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > maxPDFSizeBytes {
+		return "", fmt.Errorf("pdf too large (read): %d bytes", len(data))
+	}
+	if !bytes.HasPrefix(data, []byte("%PDF-")) {
+		return "", errors.New("response is not a PDF (no %PDF- header)")
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			text = ""
+			err = fmt.Errorf("pdf parse panic: %v", r)
+		}
+	}()
+
+	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("pdf.NewReader: %w", err)
+	}
+
+	txtReader, err := reader.GetPlainText()
+	if err != nil {
+		return "", fmt.Errorf("GetPlainText: %w", err)
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(txtReader); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
