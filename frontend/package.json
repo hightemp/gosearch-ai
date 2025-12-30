@@ -9,7 +9,10 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "katex": "^0.16.10",
     "lucide-vue-next": "^0.462.0",
+    "markdown-it": "^14.1.0",
+    "markdown-it-katex": "^2.0.3",
     "vue": "^3.5.13",
     "vue-router": "^4.5.0"
   },

@@ -2,6 +2,7 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import { routes } from './router'
+import 'katex/dist/katex.min.css'
 import './styles.css'
 
 const router = createRouter({
@@ -10,4 +11,3 @@ const router = createRouter({
 })
 
 createApp(App).use(router).mount('#app')
-

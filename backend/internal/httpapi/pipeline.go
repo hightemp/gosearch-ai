@@ -488,6 +488,17 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 			continue
 		}
 
+		contentType := resp.Header.Get("Content-Type")
+		if !isTextContentType(contentType, source.URL) {
+			// TODO: add PDF reader to extract text/snippets from application/pdf.
+			s.logger.Warn().Str("run_id", runID).Str("url", source.URL).Str("content_type", contentType).Msg("page fetch skipped")
+			s.publishStep(ctx, runID, "page.fetch.skipped", "Пропущен неподдерживаемый тип", map[string]any{
+				"url":          source.URL,
+				"content_type": contentType,
+			})
+			continue
+		}
+
 		s.publishStep(ctx, runID, "page.fetch.ok", "Страница получена", map[string]any{"url": source.URL, "bytes": len(body), "cached": false})
 
 		title, text := extractText(body)
@@ -585,7 +596,7 @@ func (s *Server) generateAnswer(ctx context.Context, runID, query, model string,
 	messages := make([]map[string]any, 0, len(history)+2)
 	messages = append(messages, map[string]any{
 		"role":    "system",
-		"content": "You are a research assistant. Use only the provided sources and cite them as [n]. Keep the answer concise and structured in Markdown.",
+		"content": "You are a research assistant. Use only the provided sources and cite them as [n]. Keep the answer concise and structured in Markdown.\n\nMath: use LaTeX delimiters. Inline formulas with $...$, display formulas with $$...$$. Do not put formulas in square brackets.\nExamples: Inline $x_{n+1}=r x_n(1-x_n)$. Display:\n$$x_{n+1}=r x_n(1-x_n)$$",
 	})
 	for _, msg := range history {
 		role := strings.TrimSpace(msg.Role)
@@ -1013,7 +1024,13 @@ func sanitizeUTF8(input string) string {
 	if input == "" {
 		return input
 	}
-	return strings.ToValidUTF8(input, " ")
+	cleaned := strings.Map(func(r rune) rune {
+		if r == 0 {
+			return -1
+		}
+		return r
+	}, input)
+	return strings.ToValidUTF8(cleaned, " ")
 }
 
 func sanitizeSnippets(snippets []string) []string {
@@ -1030,4 +1047,21 @@ func sanitizeSnippets(snippets []string) []string {
 		out = append(out, snip)
 	}
 	return out
+}
+
+func isTextContentType(contentType, rawURL string) bool {
+	ct := strings.ToLower(strings.TrimSpace(contentType))
+	if strings.Contains(ct, "text/html") || strings.Contains(ct, "text/plain") || strings.Contains(ct, "application/xhtml+xml") {
+		return true
+	}
+	if strings.HasSuffix(strings.ToLower(rawURL), ".pdf") || strings.Contains(ct, "application/pdf") {
+		return false
+	}
+	if ct == "" {
+		return true
+	}
+	if strings.HasPrefix(ct, "text/") {
+		return true
+	}
+	return false
 }

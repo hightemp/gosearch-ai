@@ -120,6 +120,8 @@
 
 <script setup lang="ts">
 import { ArrowRight, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
+import MarkdownIt from 'markdown-it'
+import mk from 'markdown-it-katex'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
@@ -151,6 +153,11 @@ const eventSource = ref<EventSource | null>(null)
 const currentChatId = ref('')
 const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
+
+const md = new MarkdownIt({
+  html: false,
+  linkify: true
+}).use(mk)
 
 const statusText = computed(() => {
   if (runError.value) return 'Ошибка'
@@ -408,115 +415,39 @@ function faviconUrl(url: string) {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
 }
 
-function escapeHtml(input: string) {
-  return input
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function escapeAttr(input: string) {
-  return escapeHtml(input)
-}
-
-function renderInline(input: string, sourceList: Source[]) {
-  const escaped = escapeHtml(input)
-  const formatted = escaped
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-  return formatted.replace(/\[(\d+)\]/g, (match, raw) => {
-    const idx = Number(raw) - 1
+function renderCitations(input: string, sourceList: Source[]) {
+  const re = /\[(\d+)\]/g
+  let out = ''
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = re.exec(input)) !== null) {
+    out += md.utils.escapeHtml(input.slice(last, match.index))
+    const idx = Number(match[1]) - 1
     const source = sourceList[idx]
-    if (!source) return match
-    const url = escapeAttr(source.url)
-    const title = escapeAttr(source.title || source.url)
-    return `<a class="citation" href="${url}" target="_blank" rel="noreferrer" title="${title}">[${raw}]</a>`
-  })
+    if (source) {
+      const url = md.utils.escapeHtml(source.url)
+      const title = md.utils.escapeHtml(source.title || source.url)
+      out += `<a class="citation" href="${url}" target="_blank" rel="noreferrer" title="${title}">[${match[1]}]</a>`
+    } else {
+      out += md.utils.escapeHtml(match[0])
+    }
+    last = match.index + match[0].length
+  }
+  out += md.utils.escapeHtml(input.slice(last))
+  return out
+}
+
+const defaultTextRule = md.renderer.rules.text
+md.renderer.rules.text = (tokens, idx, options, env, self) => {
+  const sources = (env && (env as { sources?: Source[] }).sources) || []
+  if (sources.length === 0) {
+    return defaultTextRule ? defaultTextRule(tokens, idx, options, env, self) : md.utils.escapeHtml(tokens[idx].content)
+  }
+  return renderCitations(tokens[idx].content, sources)
 }
 
 function renderMarkdown(input: string, sourceList: Source[]) {
-  const lines = input.replace(/\r\n/g, '\n').split('\n')
-  const html: string[] = []
-  let inCode = false
-  let code: string[] = []
-  let list: string[] = []
-  let paragraph: string[] = []
-
-  const flushParagraph = () => {
-    if (!paragraph.length) return
-    html.push(`<p>${renderInline(paragraph.join(' '), sourceList)}</p>`)
-    paragraph = []
-  }
-
-  const flushList = () => {
-    if (!list.length) return
-    html.push(`<ul>${list.map((item) => `<li>${renderInline(item, sourceList)}</li>`).join('')}</ul>`)
-    list = []
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed.startsWith('```')) {
-      if (inCode) {
-        html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`)
-        code = []
-        inCode = false
-      } else {
-        flushParagraph()
-        flushList()
-        inCode = true
-      }
-      continue
-    }
-
-    if (inCode) {
-      code.push(line)
-      continue
-    }
-
-    if (!trimmed) {
-      flushParagraph()
-      flushList()
-      continue
-    }
-
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
-    if (headingMatch) {
-      flushParagraph()
-      flushList()
-      const level = headingMatch[1].length
-      html.push(`<h${level}>${renderInline(headingMatch[2], sourceList)}</h${level}>`)
-      continue
-    }
-
-    if (trimmed.startsWith('>')) {
-      flushParagraph()
-      flushList()
-      const quote = trimmed.replace(/^>\s?/, '')
-      html.push(`<blockquote>${renderInline(quote, sourceList)}</blockquote>`)
-      continue
-    }
-
-    const listMatch = line.match(/^\s*([-*]|\d+\.)\s+(.+)$/)
-    if (listMatch) {
-      flushParagraph()
-      list.push(listMatch[2])
-      continue
-    }
-
-    paragraph.push(trimmed)
-  }
-
-  if (inCode) {
-    html.push(`<pre><code>${escapeHtml(code.join('\n'))}</code></pre>`)
-  }
-  flushParagraph()
-  flushList()
-
-  return html.join('\n')
+  return md.render(input, { sources: sourceList })
 }
 </script>
 
@@ -621,6 +552,23 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   border-radius: 10px;
   padding: 12px;
   overflow-x: auto;
+}
+.message--assistant .message-body :global(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 12px 0;
+  font-size: 13px;
+}
+.message--assistant .message-body :global(th),
+.message--assistant .message-body :global(td) {
+  border: 1px solid #e5e7eb;
+  padding: 8px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.message--assistant .message-body :global(th) {
+  background: #f9fafb;
+  font-weight: 600;
 }
 .message--assistant .message-body :global(code) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
