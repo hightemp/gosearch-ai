@@ -1154,14 +1154,19 @@ func (s *Server) openRouterToolStep(ctx context.Context, model string, messages 
 		}
 	}
 	payload, _ := json.Marshal(reqBody)
-	body, err := s.openRouterRequest(ctx, payload)
-	if err != nil {
-		return toolStepResponse{}, err
-	}
-
 	var payloadResp openRouterToolResponse
-	if err := json.Unmarshal(body, &payloadResp); err != nil {
-		return toolStepResponse{}, err
+	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
+		body, err := s.openRouterRequest(ctx, payload)
+		if err != nil {
+			return toolStepResponse{}, err
+		}
+		if err := json.Unmarshal(body, &payloadResp); err != nil {
+			if isJSONTruncated(err) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			return toolStepResponse{}, err
+		}
+		break
 	}
 	if len(payloadResp.Choices) == 0 {
 		return toolStepResponse{}, fmt.Errorf("openrouter: empty response")
@@ -1249,6 +1254,14 @@ func shouldRetryOpenRouter(err error, status int) bool {
 		return true
 	}
 	return false
+}
+
+func isJSONTruncated(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unexpected end of json input")
 }
 
 func (s *Server) storeAssistantMessage(ctx context.Context, runID, answer string) error {
@@ -1665,11 +1678,6 @@ func (s *Server) generateFollowupQueries(ctx context.Context, query string, sour
 	}
 	payload, _ := json.Marshal(reqBody)
 
-	body, err := s.openRouterRequest(ctx, payload)
-	if err != nil {
-		return nil, err
-	}
-
 	var payloadResp struct {
 		Choices []struct {
 			Message struct {
@@ -1677,8 +1685,18 @@ func (s *Server) generateFollowupQueries(ctx context.Context, query string, sour
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.Unmarshal(body, &payloadResp); err != nil {
-		return nil, err
+	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
+		body, err := s.openRouterRequest(ctx, payload)
+		if err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(body, &payloadResp); err != nil {
+			if isJSONTruncated(err) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			return nil, err
+		}
+		break
 	}
 	if len(payloadResp.Choices) == 0 {
 		return nil, nil
