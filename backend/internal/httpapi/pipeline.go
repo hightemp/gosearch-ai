@@ -1051,60 +1051,82 @@ func (s *Server) generateAnswer(ctx context.Context, runID, query, model string,
 	payload, _ := json.Marshal(reqBody)
 
 	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
-	req.Header.Set("X-Title", "gosearch-ai")
-
-	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter request failed")
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		s.logger.Error().Int("status", resp.StatusCode).Str("run_id", runID).Msg("openrouter non-200")
-		return "", fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-	}
-
 	answer := strings.Builder{}
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" {
-			break
+	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
+		if attempt > 0 {
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			time.Sleep(s.cfg.OpenRouterRetryDelay)
 		}
 
-		var chunk openRouterChunk
-		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-			continue
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+		if err != nil {
+			return "", err
 		}
-		if len(chunk.Choices) == 0 {
-			continue
-		}
-		delta := chunk.Choices[0].Delta.Content
-		if delta == "" {
-			continue
-		}
-		answer.WriteString(delta)
-		s.publishAnswerDelta(runID, delta)
-	}
+		req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
+		req.Header.Set("X-Title", "gosearch-ai")
 
-	if err := scanner.Err(); err != nil && !errors.Is(err, context.Canceled) {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter stream error")
-		return "", err
+		client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
+		resp, err := client.Do(req)
+		if err != nil {
+			if shouldRetryOpenRouter(err, 0) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter request failed")
+			return "", err
+		}
+
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+			_ = resp.Body.Close()
+			if shouldRetryOpenRouter(nil, resp.StatusCode) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			s.logger.Error().Int("status", resp.StatusCode).Str("run_id", runID).Msg("openrouter non-200")
+			return "", fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		}
+
+		scanner := bufio.NewScanner(resp.Body)
+		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		hadDelta := false
+		for scanner.Scan() {
+			line := strings.TrimSpace(scanner.Text())
+			if line == "" || !strings.HasPrefix(line, "data:") {
+				continue
+			}
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			if data == "[DONE]" {
+				break
+			}
+
+			var chunk openRouterChunk
+			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
+				continue
+			}
+			if len(chunk.Choices) == 0 {
+				continue
+			}
+			delta := chunk.Choices[0].Delta.Content
+			if delta == "" {
+				continue
+			}
+			hadDelta = true
+			answer.WriteString(delta)
+			s.publishAnswerDelta(runID, delta)
+		}
+		err = scanner.Err()
+		_ = resp.Body.Close()
+		if err != nil && !errors.Is(err, context.Canceled) {
+			if shouldRetryOpenRouter(err, 0) && !hadDelta && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter stream error")
+			return "", err
+		}
+		break
 	}
 
 	if answer.Len() == 0 {
@@ -1132,32 +1154,13 @@ func (s *Server) openRouterToolStep(ctx context.Context, model string, messages 
 		}
 	}
 	payload, _ := json.Marshal(reqBody)
-
-	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	body, err := s.openRouterRequest(ctx, payload)
 	if err != nil {
 		return toolStepResponse{}, err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
-	req.Header.Set("X-Title", "gosearch-ai")
-
-	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return toolStepResponse{}, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return toolStepResponse{}, fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var payloadResp openRouterToolResponse
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&payloadResp); err != nil {
+	if err := json.Unmarshal(body, &payloadResp); err != nil {
 		return toolStepResponse{}, err
 	}
 	if len(payloadResp.Choices) == 0 {
@@ -1180,6 +1183,72 @@ func (s *Server) openRouterToolStep(ctx context.Context, model string, messages 
 		reasoning = strings.Join(parts, "\n")
 	}
 	return toolStepResponse{Content: msg.Content, ToolCalls: msg.ToolCalls, Reasoning: reasoning}, nil
+}
+
+func (s *Server) openRouterRequest(ctx context.Context, payload []byte) ([]byte, error) {
+	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
+	var lastErr error
+	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
+		if attempt > 0 {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			time.Sleep(s.cfg.OpenRouterRetryDelay)
+		}
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
+		req.Header.Set("X-Title", "gosearch-ai")
+
+		client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+			if shouldRetryOpenRouter(err, 0) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			return nil, err
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+		_ = resp.Body.Close()
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			lastErr = fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+			if shouldRetryOpenRouter(nil, resp.StatusCode) && attempt < s.cfg.OpenRouterRetries {
+				continue
+			}
+			return nil, lastErr
+		}
+		return body, nil
+	}
+	return nil, lastErr
+}
+
+func shouldRetryOpenRouter(err error, status int) bool {
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			return true
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "context deadline exceeded") {
+			return true
+		}
+		if strings.Contains(strings.ToLower(err.Error()), "timeout") {
+			return true
+		}
+		return false
+	}
+	if status == http.StatusTooManyRequests || status == http.StatusRequestTimeout {
+		return true
+	}
+	if status >= 500 && status <= 599 {
+		return true
+	}
+	return false
 }
 
 func (s *Server) storeAssistantMessage(ctx context.Context, runID, answer string) error {
@@ -1596,26 +1665,9 @@ func (s *Server) generateFollowupQueries(ctx context.Context, query string, sour
 	}
 	payload, _ := json.Marshal(reqBody)
 
-	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	body, err := s.openRouterRequest(ctx, payload)
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
-	req.Header.Set("X-Title", "gosearch-ai")
-
-	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		return nil, fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
 	var payloadResp struct {
@@ -1625,8 +1677,7 @@ func (s *Server) generateFollowupQueries(ctx context.Context, query string, sour
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	dec := json.NewDecoder(resp.Body)
-	if err := dec.Decode(&payloadResp); err != nil {
+	if err := json.Unmarshal(body, &payloadResp); err != nil {
 		return nil, err
 	}
 	if len(payloadResp.Choices) == 0 {
