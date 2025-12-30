@@ -40,9 +40,9 @@ type sourceRecord struct {
 }
 
 type snippetRecord struct {
-	URL   string
-	Quote string
-	Ref   int
+	URL   string `json:"url"`
+	Quote string `json:"quote"`
+	Ref   int    `json:"ref"`
 }
 
 type chatMessage struct {
