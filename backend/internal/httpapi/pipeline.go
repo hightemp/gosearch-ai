@@ -489,6 +489,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 
 		contentType := resp.Header.Get("Content-Type")
 		if isPDFContentType(contentType, source.URL) {
+			s.publishStep(ctx, runID, "page.fetch.pdf", "PDF получен", map[string]any{"url": source.URL, "cached": false})
 			text, err := extractPDFText(resp.Body, resp.ContentLength)
 			_ = resp.Body.Close()
 			if err != nil {
@@ -497,7 +498,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 				continue
 			}
 
-			s.publishStep(ctx, runID, "page.fetch.ok", "PDF получен", map[string]any{"url": source.URL, "bytes": len(text), "cached": false})
+			s.publishStep(ctx, runID, "page.fetch.ok", "PDF извлечен", map[string]any{"url": source.URL, "bytes": len(text), "cached": false})
 
 			text = sanitizeUTF8(text)
 			s.publishStep(ctx, runID, "page.readability.ready", "PDF прочитан", map[string]any{

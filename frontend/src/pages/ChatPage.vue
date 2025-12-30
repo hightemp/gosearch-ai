@@ -38,7 +38,10 @@
         <div v-else class="steps-card">
           <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
           <div v-for="(st, idx) in steps" :key="idx" class="step">
-            <div class="step-type">{{ st.type }}</div>
+            <div class="step-type">
+              {{ st.type }}
+              <span v-if="st.type === 'page.fetch.pdf'" class="step-badge">PDF</span>
+            </div>
             <div class="step-title">{{ st.title }}</div>
           </div>
         </div>
@@ -75,7 +78,10 @@
       <div class="steps-card">
         <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
         <div v-for="(st, idx) in steps" :key="idx" class="step">
-          <div class="step-type">{{ st.type }}</div>
+          <div class="step-type">
+            {{ st.type }}
+            <span v-if="st.type === 'page.fetch.pdf'" class="step-badge">PDF</span>
+          </div>
           <div class="step-title">{{ st.title }}</div>
         </div>
       </div>
@@ -773,10 +779,22 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   color: #374151;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .step-title {
   font-size: 13px;
   color: #111827;
+}
+.step-badge {
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+  background: #eef2ff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
 }
 .composer {
   position: sticky;
