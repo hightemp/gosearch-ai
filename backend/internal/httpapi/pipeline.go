@@ -963,9 +963,7 @@ func extractSnippets(text string, max int) []string {
 		if part == "" {
 			continue
 		}
-		if len(part) > 240 {
-			part = part[:240] + "…"
-		}
+		part = truncateRunes(part, 240)
 		out = append(out, part)
 		if len(out) >= max {
 			break
@@ -1018,6 +1016,20 @@ func fallbackAnswer(query string, snippets []snippetRecord) string {
 
 func normalizeWhitespace(text string) string {
 	return strings.Join(strings.Fields(text), " ")
+}
+
+func truncateRunes(input string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	count := 0
+	for idx := range input {
+		if count == max {
+			return input[:idx] + "..."
+		}
+		count++
+	}
+	return input
 }
 
 func sanitizeUTF8(input string) string {
