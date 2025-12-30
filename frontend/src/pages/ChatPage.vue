@@ -38,10 +38,7 @@
         <div v-else class="steps-card">
           <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
           <div v-for="(st, idx) in steps" :key="idx" class="step">
-            <div class="step-type">
-              {{ st.type }}
-              <span v-if="st.type === 'page.fetch.pdf'" class="step-badge">PDF</span>
-            </div>
+            <div class="step-type">{{ st.type }}</div>
             <div class="step-title">{{ st.title }}</div>
           </div>
         </div>
@@ -58,6 +55,7 @@
             <div class="source-header">
               <a :href="s.url" target="_blank" rel="noreferrer">{{ s.title || s.url }}</a>
               <span class="source-domain">{{ getDomain(s.url) }}</span>
+              <span v-if="isPDF(s.url)" class="source-badge">PDF</span>
             </div>
             <div v-if="s.snippets.length" class="source-snippets">
               <div class="source-snippets-title">Цитаты</div>
@@ -78,10 +76,7 @@
       <div class="steps-card">
         <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
         <div v-for="(st, idx) in steps" :key="idx" class="step">
-          <div class="step-type">
-            {{ st.type }}
-            <span v-if="st.type === 'page.fetch.pdf'" class="step-badge">PDF</span>
-          </div>
+          <div class="step-type">{{ st.type }}</div>
           <div class="step-title">{{ st.title }}</div>
         </div>
       </div>
@@ -421,6 +416,10 @@ function faviconUrl(url: string) {
   return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
 }
 
+function isPDF(url: string) {
+  return /\.pdf($|[?#])/i.test(url)
+}
+
 function renderCitations(input: string, sourceList: Source[]) {
   const re = /\[(\d+)\]/g
   let out = ''
@@ -687,6 +686,15 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   font-size: 12px;
   color: var(--muted);
 }
+.source-badge {
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+  background: #eef2ff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
+}
 .source-snippets {
   margin-top: 8px;
   border-top: 1px dashed var(--border);
@@ -779,22 +787,10 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
   color: #374151;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 .step-title {
   font-size: 13px;
   color: #111827;
-}
-.step-badge {
-  border: 1px solid #c7d2fe;
-  color: #4338ca;
-  background: #eef2ff;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
 }
 .composer {
   position: sticky;
