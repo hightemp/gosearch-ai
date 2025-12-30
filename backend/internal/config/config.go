@@ -25,6 +25,8 @@ type Config struct {
 	OpenRouterAPIKey  string
 	OpenRouterBaseURL string
 	OpenRouterModels  []string
+	OpenRouterReasoning       bool
+	OpenRouterReasoningEffort string
 
 	SearxNGBaseURL string
 	SearchProvider string
@@ -87,6 +89,8 @@ func LoadFromEnv() (Config, error) {
 		return Config{}, err
 	}
 	c.OpenRouterModels = models
+	c.OpenRouterReasoning = strings.EqualFold(getenv("OPENROUTER_REASONING", "false"), "true")
+	c.OpenRouterReasoningEffort = strings.TrimSpace(getenv("OPENROUTER_REASONING_EFFORT", "medium"))
 
 	c.SearxNGBaseURL = getenv("SEARXNG_BASE_URL", "http://searxng:8080")
 	c.SearchProvider = strings.ToLower(getenv("SEARCH_PROVIDER", "searxng"))

@@ -67,6 +67,51 @@ type openRouterChunk struct {
 	} `json:"choices"`
 }
 
+type openRouterToolChoice struct {
+	Message struct {
+		Content          string     `json:"content"`
+		ToolCalls        []toolCall `json:"tool_calls"`
+		Reasoning        string     `json:"reasoning"`
+		ReasoningDetails []struct {
+			Type      string `json:"type"`
+			Text      string `json:"text"`
+			Summary   string `json:"summary"`
+			Encrypted string `json:"encrypted"`
+		} `json:"reasoning_details"`
+	} `json:"message"`
+}
+
+type openRouterToolResponse struct {
+	Choices []openRouterToolChoice `json:"choices"`
+}
+
+type toolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
+type toolStepResponse struct {
+	Content   string
+	ToolCalls []toolCall
+	Reasoning string
+}
+
+type toolSearchArgs struct {
+	Query      string `json:"query"`
+	MaxResults int    `json:"max_results"`
+}
+
+type toolFetchArgs struct {
+	URLs []struct {
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	} `json:"urls"`
+}
+
 func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	ctx, cancel := context.WithTimeout(ctx, s.cfg.PipelineTimeout)
 	defer cancel()
@@ -78,43 +123,27 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 		"items": []string{"Сформировать поисковый запрос", "Найти источники", "Прочитать страницы", "Извлечь цитаты", "Сгенерировать ответ"},
 	})
 
-	results, err := s.searchAll(ctx, runID, query)
-	if err != nil {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("search failed")
-		s.finalizeRun(ctx, runID, "search error: "+err.Error())
-		return
-	}
-
-	selected := selectSources(results, s.cfg.SearchMaxSources)
-	s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
-		"urls": urlsFromResults(selected),
-	})
-
-	sources, err := s.persistSources(ctx, runID, selected)
-	if err != nil {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("persist sources failed")
-		s.finalizeRun(ctx, runID, "sources persist error: "+err.Error())
-		return
-	}
-
-	snippets, err := s.readAndSnippet(ctx, runID, sources)
-	if err != nil {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("reader failed")
-		s.finalizeRun(ctx, runID, "reader error: "+err.Error())
-		return
-	}
-
-	history, err := s.loadChatHistory(ctx, runID, s.cfg.ChatHistoryLimit)
-	if err != nil {
-		s.logger.Warn().Err(err).Str("run_id", runID).Msg("load chat history failed")
-	}
-	history = trimHistory(history, query)
-
-	answer, err := s.generateAnswer(ctx, runID, query, model, sources, snippets, history)
-	if err != nil {
-		s.logger.Error().Err(err).Str("run_id", runID).Msg("answer generation failed")
-		s.finalizeRun(ctx, runID, "answer error: "+err.Error())
-		return
+	var (
+		answer   string
+		sources  []sourceRecord
+		snippets []snippetRecord
+		err      error
+	)
+	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
+		sources, snippets, err = s.searchAndReadIteratively(ctx, runID, query, model)
+		if err != nil {
+			s.logger.Error().Err(err).Str("run_id", runID).Msg("search pipeline failed")
+			s.finalizeRun(ctx, runID, "search error: "+err.Error())
+			return
+		}
+		answer = fallbackAnswer(query, snippets)
+	} else {
+		answer, sources, snippets, err = s.runAgentPipeline(ctx, runID, query, model)
+		if err != nil {
+			s.logger.Error().Err(err).Str("run_id", runID).Msg("agent pipeline failed")
+			s.finalizeRun(ctx, runID, "agent error: "+err.Error())
+			return
+		}
 	}
 
 	s.publishFinal(runID, answer)
@@ -125,23 +154,365 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	}
 
 	_, _ = s.pool.Exec(ctx, `update runs set status='finished', finished_at=now() where id=$1`, runID)
-	s.logger.Info().Str("run_id", runID).Msg("pipeline finished")
+	s.logger.Info().Str("run_id", runID).Int("sources", len(sources)).Int("snippets", len(snippets)).Msg("pipeline finished")
 }
 
-func (s *Server) searchAll(ctx context.Context, runID, query string) ([]searchResult, error) {
-	queries := buildSearchQueries(query, s.cfg.SearchMaxQueries)
-	all := make([]searchResult, 0, len(queries)*10)
-	for idx, q := range queries {
-		s.logger.Debug().Str("run_id", runID).Int("query_index", idx+1).Str("query", q).Msg("search query")
-		results, err := s.searchProvider(ctx, runID, q, idx+1, len(queries))
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, results...)
+func (s *Server) searchAndReadIteratively(ctx context.Context, runID, query, model string) ([]sourceRecord, []snippetRecord, error) {
+	queue := []string{query}
+	used := map[string]struct{}{}
+	allResults := make([]searchResult, 0, 32)
+	allSources := make([]sourceRecord, 0, s.cfg.SearchMaxSources)
+	allSnippets := make([]snippetRecord, 0, s.cfg.SearchMaxSources*s.cfg.SnippetMaxPerSource)
+	seenURLs := map[string]struct{}{}
+	targetSnippets := s.cfg.SearchMaxSources
+	if targetSnippets < 3 {
+		targetSnippets = 3
 	}
-	ranked := rankAndDedup(all)
-	s.logger.Debug().Str("run_id", runID).Int("results", len(ranked)).Msg("search ranked results")
-	return ranked, nil
+
+	queryIndex := 1
+	for len(queue) > 0 && len(used) < s.cfg.SearchMaxQueries {
+		q := strings.TrimSpace(queue[0])
+		queue = queue[1:]
+		if q == "" {
+			continue
+		}
+		key := strings.ToLower(q)
+		if _, ok := used[key]; ok {
+			continue
+		}
+		used[key] = struct{}{}
+
+		s.logger.Debug().Str("run_id", runID).Int("query_index", queryIndex).Str("query", q).Msg("search query")
+		results, err := s.searchProvider(ctx, runID, q, queryIndex, s.cfg.SearchMaxQueries)
+		if err != nil {
+			return nil, nil, err
+		}
+		allResults = append(allResults, results...)
+		ranked := rankAndDedup(allResults)
+		s.logger.Debug().Str("run_id", runID).Int("results", len(ranked)).Msg("search ranked results")
+
+		remaining := s.cfg.SearchMaxSources - len(seenURLs)
+		if remaining <= 0 {
+			break
+		}
+
+		selected := selectSourcesExcluding(ranked, remaining, seenURLs)
+		if len(selected) == 0 {
+			queryIndex++
+			continue
+		}
+
+		s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
+			"urls": urlsFromResults(selected),
+		})
+
+		sources, err := s.persistSources(ctx, runID, selected)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, src := range sources {
+			seenURLs[src.URL] = struct{}{}
+		}
+		allSources = append(allSources, sources...)
+
+		snips, err := s.readAndSnippet(ctx, runID, sources)
+		if err != nil {
+			return nil, nil, err
+		}
+		allSnippets = append(allSnippets, snips...)
+
+		if len(allSnippets) >= targetSnippets {
+			break
+		}
+
+		if len(used) < s.cfg.SearchMaxQueries {
+			more, err := s.generateFollowupQueries(ctx, query, allSources, allSnippets, model, s.cfg.SearchMaxQueries-len(used))
+			if err != nil {
+				s.logger.Warn().Err(err).Str("run_id", runID).Msg("generate followup queries failed")
+			} else {
+				for _, candidate := range more {
+					clean := strings.TrimSpace(candidate)
+					if clean == "" {
+						continue
+					}
+					cKey := strings.ToLower(clean)
+					if _, ok := used[cKey]; ok {
+						continue
+					}
+					queue = append(queue, clean)
+				}
+			}
+		}
+
+		queryIndex++
+	}
+
+	return allSources, allSnippets, nil
+}
+
+func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model string) (string, []sourceRecord, []snippetRecord, error) {
+	history, err := s.loadChatHistory(ctx, runID, s.cfg.ChatHistoryLimit)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("run_id", runID).Msg("load chat history failed")
+	}
+	history = trimHistory(history, query)
+	if strings.TrimSpace(model) == "" {
+		model = s.cfg.OpenRouterModels[0]
+	}
+
+	messages := make([]map[string]any, 0, len(history)+2)
+	messages = append(messages, map[string]any{
+		"role": "system",
+		"content": "You are the primary research agent. Decide whether to answer directly or use tools.\n" +
+			"Use tools to search and fetch sources when needed. Keep all tool usage in this single conversation.\n" +
+			"Rules:\n" +
+			"- Cite sources as [n].\n" +
+			"- If you need more info, call the search tool with a focused query.\n" +
+			"- If you have URLs to read, call the fetch tool.\n" +
+			"- When enough evidence is collected, call final_answer with the full answer in Markdown.\n" +
+			"- Do not answer directly in plain content.\n\n" +
+			"Math: use $...$ for inline and $$...$$ for display math.",
+	})
+	for _, msg := range history {
+		role := strings.TrimSpace(msg.Role)
+		if role != "user" && role != "assistant" && role != "system" {
+			continue
+		}
+		content := strings.TrimSpace(msg.Content)
+		if content == "" {
+			continue
+		}
+		messages = append(messages, map[string]any{
+			"role":    role,
+			"content": content,
+		})
+	}
+	messages = append(messages, map[string]any{"role": "user", "content": query})
+
+	tools := []map[string]any{
+		{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "search",
+				"description": "Search the web for relevant sources.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"query":       map[string]any{"type": "string"},
+						"max_results": map[string]any{"type": "integer"},
+					},
+					"required": []string{"query"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "fetch",
+				"description": "Fetch and extract snippets from a list of URLs.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"urls": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"url":   map[string]any{"type": "string"},
+									"title": map[string]any{"type": "string"},
+								},
+								"required": []string{"url"},
+							},
+						},
+					},
+					"required": []string{"urls"},
+				},
+			},
+		},
+		{
+			"type": "function",
+			"function": map[string]any{
+				"name":        "final_answer",
+				"description": "Return the final answer in Markdown with citations.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"answer": map[string]any{"type": "string"},
+					},
+					"required": []string{"answer"},
+				},
+			},
+		},
+	}
+
+	seenURLs := map[string]struct{}{}
+	collectedSources := make([]sourceRecord, 0, s.cfg.SearchMaxSources)
+	collectedSnippets := make([]snippetRecord, 0, s.cfg.SearchMaxSources*s.cfg.SnippetMaxPerSource)
+	searchCalls := 0
+
+	maxIterations := s.cfg.SearchMaxQueries + 4
+	if maxIterations < 6 {
+		maxIterations = 6
+	}
+
+	for i := 0; i < maxIterations; i++ {
+		resp, err := s.openRouterToolStep(ctx, model, messages, tools)
+		if err != nil {
+			return "", collectedSources, collectedSnippets, err
+		}
+
+		if strings.TrimSpace(resp.Reasoning) != "" {
+			s.publishStep(ctx, runID, "agent.reasoning", "Рассуждение агента", map[string]any{
+				"content": truncateRunes(resp.Reasoning, 2000),
+			})
+		}
+
+		if len(resp.ToolCalls) == 0 {
+			if strings.TrimSpace(resp.Content) != "" {
+				s.publishStep(ctx, runID, "agent.message", "Сообщение агента", map[string]any{
+					"content": resp.Content,
+				})
+			}
+			continue
+		}
+
+		if strings.TrimSpace(resp.Content) != "" {
+			s.publishStep(ctx, runID, "agent.message", "Сообщение агента", map[string]any{
+				"content": resp.Content,
+			})
+		}
+
+		messages = append(messages, map[string]any{
+			"role":       "assistant",
+			"content":    resp.Content,
+			"tool_calls": resp.ToolCalls,
+		})
+
+		for _, call := range resp.ToolCalls {
+			name := call.Function.Name
+			args := call.Function.Arguments
+			var result any
+			var callErr error
+
+			switch name {
+			case "search":
+				if searchCalls >= s.cfg.SearchMaxQueries {
+					callErr = fmt.Errorf("search limit reached")
+					break
+				}
+				var parsed toolSearchArgs
+				if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+					callErr = err
+					break
+				}
+				parsed.Query = strings.TrimSpace(parsed.Query)
+				if parsed.Query == "" {
+					callErr = fmt.Errorf("query is required")
+					break
+				}
+				searchCalls++
+				results, err := s.searchProvider(ctx, runID, parsed.Query, searchCalls, s.cfg.SearchMaxQueries)
+				if err != nil {
+					callErr = err
+					break
+				}
+				if parsed.MaxResults > 0 && parsed.MaxResults < len(results) {
+					results = results[:parsed.MaxResults]
+				}
+				result = normalizeResults(results)
+
+			case "fetch":
+				var parsed toolFetchArgs
+				if err := json.Unmarshal([]byte(args), &parsed); err != nil {
+					callErr = err
+					break
+				}
+				items := make([]searchResult, 0, len(parsed.URLs))
+				for _, item := range parsed.URLs {
+					urlStr := strings.TrimSpace(item.URL)
+					if urlStr == "" {
+						continue
+					}
+					key := canonicalizeURL(urlStr)
+					if key == "" {
+						key = urlStr
+					}
+					if _, ok := seenURLs[key]; ok {
+						continue
+					}
+					if len(items) >= s.cfg.SearchMaxSources {
+						break
+					}
+					seenURLs[key] = struct{}{}
+					items = append(items, searchResult{
+						Title:     strings.TrimSpace(item.Title),
+						URL:       urlStr,
+						Canonical: key,
+					})
+				}
+				if len(items) == 0 {
+					result = map[string]any{"items": []any{}}
+					break
+				}
+				s.publishStep(ctx, runID, "agent.fetch", "Чтение источников", map[string]any{
+					"items": normalizeResults(items),
+				})
+				s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
+					"urls": urlsFromResults(items),
+				})
+				sources, err := s.persistSources(ctx, runID, items)
+				if err != nil {
+					callErr = err
+					break
+				}
+				snips, err := s.readAndSnippet(ctx, runID, sources)
+				if err != nil {
+					callErr = err
+					break
+				}
+				collectedSources = append(collectedSources, sources...)
+				collectedSnippets = append(collectedSnippets, snips...)
+				result = map[string]any{
+					"sources":  sources,
+					"snippets": snips,
+				}
+
+			case "final_answer":
+				var payload struct {
+					Answer string `json:"answer"`
+				}
+				if err := json.Unmarshal([]byte(args), &payload); err != nil {
+					callErr = err
+					break
+				}
+				answer := strings.TrimSpace(payload.Answer)
+				if answer == "" {
+					callErr = fmt.Errorf("answer is empty")
+					break
+				}
+				return answer, collectedSources, collectedSnippets, nil
+
+			default:
+				callErr = fmt.Errorf("unknown tool: %s", name)
+			}
+
+			toolPayload := map[string]any{"ok": callErr == nil}
+			if callErr != nil {
+				toolPayload["error"] = callErr.Error()
+			} else if result != nil {
+				toolPayload["result"] = result
+			}
+			toolJSON, _ := json.Marshal(toolPayload)
+			messages = append(messages, map[string]any{
+				"role":         "tool",
+				"tool_call_id": call.ID,
+				"name":         name,
+				"content":      string(toolJSON),
+			})
+		}
+	}
+
+	return fallbackAnswer(query, collectedSnippets), collectedSources, collectedSnippets, nil
 }
 
 func (s *Server) searchProvider(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
@@ -737,6 +1108,74 @@ func (s *Server) generateAnswer(ctx context.Context, runID, query, model string,
 	return answer.String(), nil
 }
 
+func (s *Server) openRouterToolStep(ctx context.Context, model string, messages []map[string]any, tools []map[string]any) (toolStepResponse, error) {
+	if strings.TrimSpace(model) == "" {
+		model = s.cfg.OpenRouterModels[0]
+	}
+
+	reqBody := map[string]any{
+		"model":    model,
+		"stream":   false,
+		"messages": messages,
+		"tools":    tools,
+	}
+	if s.cfg.OpenRouterReasoning {
+		reqBody["reasoning"] = map[string]any{
+			"effort":  s.cfg.OpenRouterReasoningEffort,
+			"exclude": false,
+		}
+	}
+	payload, _ := json.Marshal(reqBody)
+
+	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	if err != nil {
+		return toolStepResponse{}, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
+	req.Header.Set("X-Title", "gosearch-ai")
+
+	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return toolStepResponse{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return toolStepResponse{}, fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var payloadResp openRouterToolResponse
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(&payloadResp); err != nil {
+		return toolStepResponse{}, err
+	}
+	if len(payloadResp.Choices) == 0 {
+		return toolStepResponse{}, fmt.Errorf("openrouter: empty response")
+	}
+	msg := payloadResp.Choices[0].Message
+	reasoning := strings.TrimSpace(msg.Reasoning)
+	if reasoning == "" && len(msg.ReasoningDetails) > 0 {
+		var parts []string
+		for _, item := range msg.ReasoningDetails {
+			switch {
+			case item.Summary != "":
+				parts = append(parts, item.Summary)
+			case item.Text != "":
+				parts = append(parts, item.Text)
+			case item.Encrypted != "":
+				parts = append(parts, item.Encrypted)
+			}
+		}
+		reasoning = strings.Join(parts, "\n")
+	}
+	return toolStepResponse{Content: msg.Content, ToolCalls: msg.ToolCalls, Reasoning: reasoning}, nil
+}
+
 func (s *Server) storeAssistantMessage(ctx context.Context, runID, answer string) error {
 	var chatID string
 	if err := s.pool.QueryRow(ctx, `select chat_id from runs where id=$1`, runID).Scan(&chatID); err != nil {
@@ -824,6 +1263,35 @@ func selectSources(results []searchResult, maxSources int) []searchResult {
 	return out
 }
 
+func selectSourcesExcluding(results []searchResult, maxSources int, seenURLs map[string]struct{}) []searchResult {
+	out := make([]searchResult, 0, maxSources)
+	seenDomains := map[string]struct{}{}
+	for _, res := range results {
+		if len(out) >= maxSources {
+			break
+		}
+		domain := domainFromURL(res.URL)
+		if domain == "" {
+			continue
+		}
+		key := res.Canonical
+		if key == "" {
+			key = res.URL
+		}
+		if key == "" {
+			continue
+		}
+		if _, ok := seenURLs[key]; ok {
+			continue
+		}
+		if _, ok := seenDomains[domain]; ok {
+			continue
+		}
+		seenDomains[domain] = struct{}{}
+		out = append(out, res)
+	}
+	return out
+}
 func urlsFromResults(results []searchResult) []string {
 	out := make([]string, 0, len(results))
 	for _, res := range results {
@@ -1065,6 +1533,127 @@ func fallbackAnswer(query string, snippets []snippetRecord) string {
 
 func normalizeWhitespace(text string) string {
 	return strings.Join(strings.Fields(text), " ")
+}
+
+func (s *Server) generateFollowupQueries(ctx context.Context, query string, sources []sourceRecord, snippets []snippetRecord, model string, max int) ([]string, error) {
+	if max <= 0 {
+		return nil, nil
+	}
+	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(model) == "" {
+		model = s.cfg.OpenRouterModels[0]
+	}
+
+	type quickSource struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	type quickSnippet struct {
+		URL   string `json:"url"`
+		Quote string `json:"quote"`
+	}
+
+	qs := make([]quickSource, 0, len(sources))
+	for _, src := range sources {
+		qs = append(qs, quickSource{Title: src.Title, URL: src.URL})
+	}
+	qsSnips := make([]quickSnippet, 0, len(snippets))
+	for _, snip := range snippets {
+		qsSnips = append(qsSnips, quickSnippet{URL: snip.URL, Quote: snip.Quote})
+	}
+
+	prompt := map[string]any{
+		"query":    query,
+		"sources":  qs,
+		"snippets": qsSnips,
+		"max":      max,
+	}
+	promptJSON, _ := json.Marshal(prompt)
+
+	messages := []map[string]any{
+		{
+			"role":    "system",
+			"content": "You propose follow-up web search queries. Return ONLY a JSON array of strings. Do not include explanations.",
+		},
+		{
+			"role":    "user",
+			"content": "Generate focused follow-up search queries to fill missing information. Use the context JSON:\n" + string(promptJSON),
+		},
+	}
+
+	reqBody := map[string]any{
+		"model":    model,
+		"stream":   false,
+		"messages": messages,
+	}
+	payload, _ := json.Marshal(reqBody)
+
+	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
+	req.Header.Set("X-Title", "gosearch-ai")
+
+	client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		return nil, fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var payloadResp struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	dec := json.NewDecoder(resp.Body)
+	if err := dec.Decode(&payloadResp); err != nil {
+		return nil, err
+	}
+	if len(payloadResp.Choices) == 0 {
+		return nil, nil
+	}
+	raw := strings.TrimSpace(payloadResp.Choices[0].Message.Content)
+	if raw == "" {
+		return nil, nil
+	}
+
+	var queries []string
+	if err := json.Unmarshal([]byte(raw), &queries); err != nil {
+		return nil, err
+	}
+
+	out := make([]string, 0, len(queries))
+	seen := map[string]struct{}{}
+	for _, q := range queries {
+		q = strings.TrimSpace(q)
+		if q == "" {
+			continue
+		}
+		key := strings.ToLower(q)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, q)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out, nil
 }
 
 func truncateRunes(input string, max int) string {

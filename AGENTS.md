@@ -31,3 +31,7 @@
 ## Security & Configuration Tips
 - Store secrets in `.env`; never commit API keys.
 - Verify ports when running locally: frontend `3000`, backend `8084`, SearxNG `8083`, Postgres `5434`.
+
+# Важное
+
+- Используй MCP context7 для поиска дополнительной информации и документации. context7 - поисковик по документации которая у него в БД.

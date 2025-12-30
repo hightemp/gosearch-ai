@@ -37,9 +37,21 @@
         </div>
         <div v-else class="steps-card">
           <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
-          <div v-for="(st, idx) in steps" :key="idx" class="step">
-            <div class="step-type">{{ st.type }}</div>
-            <div class="step-title">{{ st.title }}</div>
+          <div v-for="(st, idx) in stepGroups" :key="idx" class="step">
+            <div class="step-type">{{ st.label }}</div>
+            <div class="step-title">
+              <div v-if="st.detail">{{ st.detail }}</div>
+              <div v-else-if="st.type === 'agent.fetch'">
+                <ul class="step-links">
+                  <li v-for="item in st.items" :key="item.url" class="step-link">
+                    <img class="step-favicon" :src="faviconUrl(item.url)" alt="" />
+                    <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title || item.url }}</a>
+                    <span class="step-domain">{{ getDomain(item.url) }}</span>
+                  </li>
+                </ul>
+              </div>
+              <div v-else>{{ st.title }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -75,9 +87,21 @@
       <div class="steps-title">Шаги</div>
       <div class="steps-card">
         <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
-        <div v-for="(st, idx) in steps" :key="idx" class="step">
-          <div class="step-type">{{ st.type }}</div>
-          <div class="step-title">{{ st.title }}</div>
+        <div v-for="(st, idx) in stepGroups" :key="idx" class="step">
+          <div class="step-type">{{ st.label }}</div>
+          <div class="step-title">
+            <div v-if="st.detail">{{ st.detail }}</div>
+            <div v-else-if="st.type === 'agent.fetch'">
+              <ul class="step-links">
+                <li v-for="item in st.items" :key="item.url" class="step-link">
+                  <img class="step-favicon" :src="faviconUrl(item.url)" alt="" />
+                  <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title || item.url }}</a>
+                  <span class="step-domain">{{ getDomain(item.url) }}</span>
+                </li>
+              </ul>
+            </div>
+            <div v-else>{{ st.title }}</div>
+          </div>
         </div>
       </div>
     </div>
@@ -205,6 +229,25 @@ const messages = computed(() => {
 })
 
 const showSourcesNote = computed(() => history.value.filter((msg) => msg.role === 'assistant').length > 1)
+
+const stepGroups = computed(() => {
+  return steps.value.map((st) => {
+    if (st.type === 'agent.fetch') {
+      const items = Array.isArray(st.payload?.items) ? st.payload.items : []
+      return { ...st, label: 'Чтение источников', items }
+    }
+    if (st.type === 'agent.message') {
+      return { ...st, label: 'Сообщение агента', detail: st.payload?.content || '' }
+    }
+    if (st.type === 'agent.reasoning') {
+      return { ...st, label: 'Рассуждение агента', detail: st.payload?.content || '' }
+    }
+    if (st.type === 'search.query') {
+      return { ...st, label: 'Поиск', detail: st.payload?.query || '' }
+    }
+    return { ...st, label: st.title || st.type }
+  })
+})
 
 async function startRun(queryText: string, model: string, chatId?: string) {
   if (!queryText) return
@@ -806,6 +849,38 @@ function renderMarkdown(input: string, sourceList: Source[]) {
 .step-title {
   font-size: 13px;
   color: #111827;
+}
+.step-links {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+.step-link {
+  display: grid;
+  grid-template-columns: 16px auto 1fr;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+}
+.step-favicon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #f3f4f6;
+}
+.step-link a {
+  color: #0f766e;
+  text-decoration: none;
+  font-weight: 600;
+}
+.step-link a:hover {
+  text-decoration: underline;
+}
+.step-domain {
+  color: var(--muted);
+  font-size: 11px;
 }
 .composer {
   position: sticky;
