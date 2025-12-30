@@ -132,24 +132,30 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
 		sources, snippets, err = s.searchAndReadIteratively(ctx, runID, query, model)
 		if err != nil {
+			errMsg := "search error: " + err.Error()
 			s.logger.Error().Err(err).Str("run_id", runID).Msg("search pipeline failed")
-			s.finalizeRun(ctx, runID, "search error: "+err.Error())
+			s.finalizeRun(ctx, runID, errMsg)
+			s.publishRunError(runID, errMsg)
 			return
 		}
 		answer = fallbackAnswer(query, snippets)
 	} else {
 		answer, sources, snippets, err = s.runAgentPipeline(ctx, runID, query, model)
 		if err != nil {
+			errMsg := "agent error: " + err.Error()
 			s.logger.Error().Err(err).Str("run_id", runID).Msg("agent pipeline failed")
-			s.finalizeRun(ctx, runID, "agent error: "+err.Error())
+			s.finalizeRun(ctx, runID, errMsg)
+			s.publishRunError(runID, errMsg)
 			return
 		}
 	}
 
 	s.publishFinal(runID, answer)
 	if err := s.storeAssistantMessage(ctx, runID, answer); err != nil {
+		errMsg := "store message error: " + err.Error()
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("store assistant message failed")
-		s.finalizeRun(ctx, runID, "store message error: "+err.Error())
+		s.finalizeRun(ctx, runID, errMsg)
+		s.publishRunError(runID, errMsg)
 		return
 	}
 

@@ -34,6 +34,16 @@
             <div class="message-body" v-if="msg.role === 'assistant'" v-html="msg.html" />
             <div class="message-body" v-else>{{ msg.content }}</div>
           </div>
+          <div v-if="isRunning" class="message message--assistant">
+            <div class="message-role">Ассистент</div>
+            <div class="message-body">
+              <span class="loading-dots" aria-label="Идет генерация">
+                <span class="dot" />
+                <span class="dot" />
+                <span class="dot" />
+              </span>
+            </div>
+          </div>
         </div>
         <div v-else class="steps-card">
           <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
@@ -51,6 +61,16 @@
                 </ul>
               </div>
               <div v-else>{{ st.title }}</div>
+            </div>
+          </div>
+          <div v-if="isRunning" class="step step--pending">
+            <div class="step-type">В процессе</div>
+            <div class="step-title">
+              <span class="loading-dots" aria-label="Выполняется">
+                <span class="dot" />
+                <span class="dot" />
+                <span class="dot" />
+              </span>
             </div>
           </div>
         </div>
@@ -101,6 +121,16 @@
               </ul>
             </div>
             <div v-else>{{ st.title }}</div>
+          </div>
+        </div>
+        <div v-if="isRunning" class="step step--pending">
+          <div class="step-type">В процессе</div>
+          <div class="step-title">
+            <span class="loading-dots" aria-label="Выполняется">
+              <span class="dot" />
+              <span class="dot" />
+              <span class="dot" />
+            </span>
           </div>
         </div>
       </div>
@@ -335,6 +365,13 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     }
     upsertAssistant(answerText.value)
     isRunning.value = false
+  })
+
+  es.addEventListener('run.error', (ev: MessageEvent) => {
+    const obj = JSON.parse(ev.data) as { error?: string }
+    isRunning.value = false
+    runError.value = obj.error || 'Ошибка выполнения pipeline.'
+    es.close()
   })
 
   es.onerror = () => {
@@ -688,6 +725,32 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   height: 8px;
   border-radius: 999px;
   background: #0f766e;
+}
+.loading-dots {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+.loading-dots .dot {
+  animation: loading-pulse 1.1s infinite ease-in-out;
+}
+.loading-dots .dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.loading-dots .dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+@keyframes loading-pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.9);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 .text {
   color: var(--muted);

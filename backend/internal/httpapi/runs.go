@@ -271,3 +271,9 @@ func (s *Server) publishFinal(runID string, answer string) {
 	sse := []byte("event: answer.final\n" + "data: " + string(frame) + "\n\n")
 	globalHub.publish(runID, sse)
 }
+
+func (s *Server) publishRunError(runID string, message string) {
+	frame, _ := json.Marshal(map[string]any{"error": message})
+	sse := []byte("event: run.error\n" + "data: " + string(frame) + "\n\n")
+	globalHub.publish(runID, sse)
+}
