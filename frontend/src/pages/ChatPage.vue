@@ -91,7 +91,10 @@
             <img class="link-favicon" :src="faviconUrl(s.url)" alt="" />
             <div class="link-meta">
               <a :href="s.url" target="_blank" rel="noreferrer">{{ s.title || `Источник ${idx + 1}` }}</a>
-              <div class="link-domain">{{ getDomain(s.url) }}</div>
+              <div class="link-domain">
+                {{ getDomain(s.url) }}
+                <span v-if="isPDF(s.url)" class="link-badge">PDF</span>
+              </div>
             </div>
           </li>
         </ul>
@@ -753,6 +756,18 @@ function renderMarkdown(input: string, sourceList: Source[]) {
 .link-domain {
   font-size: 12px;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.link-badge {
+  border: 1px solid #c7d2fe;
+  color: #4338ca;
+  background: #eef2ff;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  letter-spacing: 0.02em;
 }
 .source-item a {
   color: #0f766e;
