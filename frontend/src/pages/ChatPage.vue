@@ -186,6 +186,7 @@
 
 <script setup lang="ts">
 import { ArrowRight, Copy, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
+import hljs from 'highlight.js'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
@@ -230,6 +231,10 @@ const md = new MarkdownIt({
 md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   const token = tokens[idx]
   const content = token.content || ''
+  const lang = (token.info || '').trim().split(/\s+/)[0]
+  const highlighted = lang && hljs.getLanguage(lang)
+    ? hljs.highlight(content, { language: lang }).value
+    : hljs.highlightAuto(content).value
   const escaped = md.utils.escapeHtml(content)
   const data = escaped.replace(/"/g, '&quot;')
   const icon =
@@ -240,7 +245,7 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
   return (
     `<div class="code-block">` +
     `<button class="code-copy" data-copy="code" data-content="${data}" aria-label="Copy">${icon}</button>` +
-    `<pre><code>${escaped}</code></pre>` +
+    `<pre><code class="hljs${lang ? ` language-${lang}` : ''}">${highlighted || escaped}</code></pre>` +
     `</div>`
   )
 }

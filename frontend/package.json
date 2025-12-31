@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "highlight.js": "^11.10.0",
     "katex": "^0.16.10",
     "lucide-vue-next": "^0.462.0",
     "markdown-it": "^14.1.0",
