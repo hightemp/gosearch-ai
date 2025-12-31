@@ -266,8 +266,8 @@ func (s *Server) publishAnswerDelta(runID string, delta string) {
 	globalHub.publish(runID, sse)
 }
 
-func (s *Server) publishFinal(runID string, answer string) {
-	frame, _ := json.Marshal(map[string]any{"answer": answer})
+func (s *Server) publishFinal(runID string, answer string, model string) {
+	frame, _ := json.Marshal(map[string]any{"answer": answer, "model": model})
 	sse := []byte("event: answer.final\n" + "data: " + string(frame) + "\n\n")
 	globalHub.publish(runID, sse)
 }

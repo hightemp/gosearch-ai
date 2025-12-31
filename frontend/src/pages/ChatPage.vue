@@ -27,10 +27,18 @@
 
     <div v-if="activeTab === 'answer'" class="answer">
       <div class="answer-title">Ответ</div>
-      <div class="answer-card">
+      <div class="answer-card" ref="answerRef">
         <div v-if="messages.length" class="message-list">
           <div v-for="msg in messages" :key="msg.id" class="message" :class="`message--${msg.role}`">
-            <div class="message-role">{{ msg.roleLabel }}</div>
+            <div class="message-header">
+              <div class="message-role">
+                {{ msg.roleLabel }}
+                <span v-if="msg.modelLabel" class="model-badge">{{ msg.modelLabel }}</span>
+              </div>
+              <button v-if="msg.role === 'assistant'" class="copy-btn" @click="copyText(msg.content)" aria-label="Copy">
+                <Copy class="copy-icon" />
+              </button>
+            </div>
             <div class="message-body" v-if="msg.role === 'assistant'" v-html="msg.html" />
             <div class="message-body" v-else>{{ msg.content }}</div>
           </div>
@@ -177,10 +185,10 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
+import { ArrowRight, Copy, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
 
@@ -188,7 +196,7 @@ type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
 type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
-type AnswerFinal = { answer?: string }
+type AnswerFinal = { answer?: string; model?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
 type ChatMeta = { last_run_id?: string }
 type RunStep = { type: string; title: string; payload: any; created_at?: string }
@@ -204,6 +212,7 @@ const runId = ref<string>('')
 const isRunning = ref(false)
 const runError = ref('')
 const answerText = ref('')
+const answerModel = ref('')
 const activeTab = ref<'answer' | 'steps' | 'links' | 'images'>('answer')
 const sourceTitles = ref<Record<string, string>>({})
 const followup = ref('')
@@ -211,11 +220,30 @@ const eventSource = ref<EventSource | null>(null)
 const currentChatId = ref('')
 const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
+const answerRef = ref<HTMLElement | null>(null)
 
 const md = new MarkdownIt({
   html: false,
   linkify: true
 }).use(mk)
+
+md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+  const token = tokens[idx]
+  const content = token.content || ''
+  const escaped = md.utils.escapeHtml(content)
+  const data = escaped.replace(/"/g, '&quot;')
+  const icon =
+    '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">' +
+    '<path d="M8 7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2z" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '<path d="M6 17H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v1" fill="none" stroke="currentColor" stroke-width="2"/>' +
+    '</svg>'
+  return (
+    `<div class="code-block">` +
+    `<button class="code-copy" data-copy="code" data-content="${data}" aria-label="Copy">${icon}</button>` +
+    `<pre><code>${escaped}</code></pre>` +
+    `</div>`
+  )
+}
 
 const statusText = computed(() => {
   if (runError.value) return 'Ошибка'
@@ -254,7 +282,8 @@ const messages = computed(() => {
     const isLatestAssistant = msg.id === lastAssistantId.value
     const citations = isLatestAssistant ? citationSources.value : []
     const html = msg.role === 'assistant' ? renderMarkdown(msg.content, citations) : ''
-    return { ...msg, roleLabel, html }
+    const modelLabel = isLatestAssistant ? answerModel.value : ''
+    return { ...msg, roleLabel, html, modelLabel }
   })
 })
 
@@ -363,6 +392,9 @@ async function startRun(queryText: string, model: string, chatId?: string) {
     if (obj.answer) {
       answerText.value = obj.answer
     }
+    if (obj.model) {
+      answerModel.value = obj.model
+    }
     upsertAssistant(answerText.value)
     isRunning.value = false
   })
@@ -381,8 +413,26 @@ async function startRun(queryText: string, model: string, chatId?: string) {
   }
 }
 
+const codeCopyHandler = (ev: Event) => {
+  const target = ev.target as HTMLElement | null
+  if (!target) return
+  const button = target.closest<HTMLButtonElement>('[data-copy="code"]')
+  if (!button) return
+  const content = button.getAttribute('data-content') || ''
+  copyText(content)
+}
+
 onMounted(() => {
   void hydrateFromRoute()
+  if (answerRef.value) {
+    answerRef.value.addEventListener('click', codeCopyHandler)
+  }
+})
+
+onBeforeUnmount(() => {
+  if (answerRef.value) {
+    answerRef.value.removeEventListener('click', codeCopyHandler)
+  }
 })
 
 watch(
@@ -537,6 +587,31 @@ md.renderer.rules.text = (tokens, idx, options, env, self) => {
 function renderMarkdown(input: string, sourceList: Source[]) {
   return md.render(input, { sources: sourceList })
 }
+
+function decodeHtmlEntities(input: string) {
+  return input
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+function copyText(text: string) {
+  const clean = decodeHtmlEntities(text)
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(clean)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = clean
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
 </script>
 
 <style scoped>
@@ -601,11 +676,49 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   display: grid;
   gap: 6px;
 }
+.message-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.copy-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  color: #111827;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.copy-btn:hover {
+  background: #f9fafb;
+}
+.copy-icon {
+  width: 14px;
+  height: 14px;
+}
 .message-role {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.model-badge {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #111827;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  text-transform: none;
+  letter-spacing: 0.02em;
 }
 .message-body {
   font-size: 14px;
@@ -640,6 +753,28 @@ function renderMarkdown(input: string, sourceList: Source[]) {
   border-radius: 10px;
   padding: 12px;
   overflow-x: auto;
+}
+.message--assistant .message-body :global(.code-block) {
+  position: relative;
+  margin: 0 0 12px 0;
+}
+.message--assistant .message-body :global(.code-copy) {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  color: #111827;
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.message--assistant .message-body :global(.code-copy:hover) {
+  background: #f9fafb;
 }
 .message--assistant .message-body :global(table) {
   width: 100%;

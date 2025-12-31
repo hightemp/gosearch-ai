@@ -150,7 +150,7 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 		}
 	}
 
-	s.publishFinal(runID, answer)
+	s.publishFinal(runID, answer, model)
 	if err := s.storeAssistantMessage(ctx, runID, answer); err != nil {
 		errMsg := "store message error: " + err.Error()
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("store assistant message failed")
