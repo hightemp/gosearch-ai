@@ -1,8 +1,7 @@
 <template>
   <div class="home">
     <div class="logo">
-      <span class="logo-text">perplexity</span>
-      <span class="logo-badge">pro</span>
+      <span class="logo-text">gosearch.ai</span>
     </div>
 
     <div class="search-card">
@@ -91,17 +90,10 @@ onMounted(() => {
   margin-bottom: 18px;
 }
 .logo-text {
-  font-size: 44px;
-  font-weight: 400;
+  font-size: 42px;
+  font-weight: 500;
   color: #111827;
-}
-.logo-badge {
-  font-size: 14px;
-  font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  color: #0f766e;
+  letter-spacing: -0.02em;
 }
 .search-card {
   width: min(860px, 92%);
