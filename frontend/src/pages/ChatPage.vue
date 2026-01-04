@@ -177,6 +177,22 @@
         placeholder="Добавить детали или пояснения…"
         @keydown.enter.exact.prevent="submitFollowup"
       />
+      <div class="model-picker">
+        <button class="model-trigger" :disabled="isLoadingModels" @click="toggleModelMenu" aria-label="Выбрать модель">
+          <Cpu class="icon icon--small" />
+        </button>
+        <div v-if="showModelMenu" class="model-menu">
+          <button
+            v-for="m in models"
+            :key="m"
+            class="model-option"
+            :class="{ 'model-option--active': m === selectedModel }"
+            @click="selectModel(m)"
+          >
+            {{ m }}
+          </button>
+        </div>
+      </div>
       <button class="composer-send" :disabled="!followup.trim()" @click="submitFollowup">
         <ArrowRight class="composer-icon" />
       </button>
@@ -185,13 +201,14 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, Copy, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
+import { ArrowRight, Copy, Cpu, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
+import { useModelStore } from '../modelStore'
 
 type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
@@ -222,6 +239,8 @@ const currentChatId = ref('')
 const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
 const answerRef = ref<HTMLElement | null>(null)
+const showModelMenu = ref(false)
+const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
 
 const md = new MarkdownIt({
   html: false,
@@ -429,6 +448,7 @@ const codeCopyHandler = (ev: Event) => {
 
 onMounted(() => {
   void hydrateFromRoute()
+  void loadModels()
   if (answerRef.value) {
     answerRef.value.addEventListener('click', codeCopyHandler)
   }
@@ -449,7 +469,11 @@ watch(
 
 async function hydrateFromRoute() {
   const q = String(route.query.q || '').trim()
-  const model = String(route.query.model || '').trim()
+  const routeModel = String(route.query.model || '').trim()
+  if (routeModel) {
+    setModel(routeModel)
+  }
+  const model = String(routeModel || selectedModel.value || '').trim()
   const chatId = String(route.params.chatId || '').trim()
   if (q) {
     if (q !== lastQuery.value) {
@@ -513,9 +537,19 @@ async function submitFollowup() {
   const text = followup.value.trim()
   if (!text || isRunning.value) return
   followup.value = ''
-  const model = String(route.query.model || '').trim()
+  const model = String(route.query.model || selectedModel.value || '').trim()
   const chatId = currentChatId.value || String(route.params.chatId || '').trim()
   await startRun(text, model, chatId || undefined)
+}
+
+function toggleModelMenu() {
+  if (isLoadingModels.value) return
+  showModelMenu.value = !showModelMenu.value
+}
+
+function selectModel(model: string) {
+  setModel(model)
+  showModelMenu.value = false
 }
 
 async function loadHistory(chatId: string) {
@@ -1090,7 +1124,7 @@ function copyText(text: string) {
   bottom: 18px;
   margin-top: 26px;
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 10px;
   background: #fff;
   border: 1px solid var(--border);
@@ -1116,5 +1150,53 @@ function copyText(text: string) {
 .composer-icon {
   width: 18px;
   height: 18px;
+}
+.composer .model-picker {
+  position: relative;
+}
+.composer .model-trigger {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.composer .model-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.composer .model-menu {
+  position: absolute;
+  right: 0;
+  bottom: 52px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  z-index: 20;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+.composer .model-option {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #111827;
+}
+.composer .model-option:hover {
+  background: var(--hover);
+}
+.composer .model-option--active {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
 }
 </style>

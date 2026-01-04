@@ -17,9 +17,22 @@
           @keydown.enter.exact.prevent="submit"
         />
 
-        <select v-model="model" class="model" :disabled="isLoadingModels">
-          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
-        </select>
+        <div class="model-picker">
+          <button class="model-trigger" :disabled="isLoadingModels" @click="toggleModelMenu">
+            <Cpu class="icon icon--small" />
+          </button>
+          <div v-if="showModelMenu" class="model-menu">
+            <button
+              v-for="m in models"
+              :key="m"
+              class="model-option"
+              :class="{ 'model-option--active': m === selectedModel }"
+              @click="selectModel(m)"
+            >
+              {{ m }}
+            </button>
+          </div>
+        </div>
 
         <button class="send" @click="submit">
           <ArrowRight class="icon icon--inverse" />
@@ -31,48 +44,33 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, Search } from 'lucide-vue-next'
+import { ArrowRight, Cpu, Search } from 'lucide-vue-next'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { apiFetch } from '../api'
+import { useModelStore } from '../modelStore'
 
 const router = useRouter()
 const q = ref('')
 
-const models = ref<string[]>([])
-const model = ref('')
-const isLoadingModels = ref(true)
+const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
+const showModelMenu = ref(false)
 
-async function loadModels() {
-  try {
-    const resp = await apiFetch('/models')
-    if (!resp.ok) return
-    const data = (await resp.json()) as { models?: string[] }
-    if (Array.isArray(data.models)) {
-      models.value = data.models
-    }
-  } catch {
-    // fallback to default below
-  } finally {
-    if (!models.value.length) {
-      models.value = ['openai/gpt-4.1-mini']
-    }
-    if (!model.value) {
-      model.value = models.value[0]
-    }
-    isLoadingModels.value = false
-  }
+function toggleModelMenu() {
+  showModelMenu.value = !showModelMenu.value
+}
+
+function selectModel(model: string) {
+  setModel(model)
+  showModelMenu.value = false
 }
 
 async function submit() {
   const text = q.value.trim()
   if (!text) return
-  if (!model.value) {
-    model.value = models.value[0] || 'openai/gpt-4.1-mini'
-  }
+  const model = selectedModel.value || models.value[0] || 'openai/gpt-4.1-mini'
 
   const tmpId = crypto.randomUUID()
-  await router.push({ name: 'chat', params: { chatId: tmpId }, query: { q: text, model: model.value } })
+  await router.push({ name: 'chat', params: { chatId: tmpId }, query: { q: text, model } })
 }
 
 onMounted(() => {
@@ -138,12 +136,53 @@ onMounted(() => {
   border-color: #0f766e;
   box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
 }
-.model {
-  font-size: 12px;
-  padding: 12px 10px;
+.model-picker {
+  position: relative;
+}
+.model-trigger {
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
   border: 1px solid var(--border);
   background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.model-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.model-menu {
+  position: absolute;
+  right: 0;
+  top: 52px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px;
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+  z-index: 10;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+.model-option {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #111827;
+}
+.model-option:hover {
+  background: var(--hover);
+}
+.model-option--active {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
 }
 .send {
   width: 44px;

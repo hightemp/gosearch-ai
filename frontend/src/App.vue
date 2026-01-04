@@ -48,16 +48,44 @@
     </aside>
 
     <main class="main">
+      <div class="main-header">
+        <button class="settings-btn" @click="showSettings = true" aria-label="Настройки">
+          <Settings class="icon icon--small" />
+        </button>
+      </div>
       <router-view />
     </main>
+    <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
+      <div class="modal">
+        <div class="modal-title">Настройки</div>
+        <div class="modal-section">
+          <div class="modal-label">Модель ответа</div>
+          <div class="modal-options">
+            <button
+              v-for="m in models"
+              :key="m"
+              class="model-option"
+              :class="{ 'model-option--active': m === selectedModel }"
+              @click="setModel(m)"
+            >
+              {{ m }}
+            </button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="modal-close" @click="showSettings = false">Закрыть</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Bookmark, Home, Library, MessageSquare } from 'lucide-vue-next'
+import { Bookmark, Home, Library, MessageSquare, Settings } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from './api'
+import { useModelStore } from './modelStore'
 
 type ChatItem = {
   id: string
@@ -82,6 +110,8 @@ const router = useRouter()
 const recentChats = ref<ChatItem[]>([])
 const bookmarks = ref<BookmarkItem[]>([])
 const isLoading = ref(false)
+const showSettings = ref(false)
+const { models, selectedModel, loadModels, setModel } = useModelStore()
 
 const activeChatId = computed(() => String(route.params.chatId || '').trim())
 
@@ -138,6 +168,7 @@ function formatDate(input?: string) {
 
 onMounted(() => {
   void loadSidebar()
+  void loadModels()
 })
 
 watch(
@@ -274,5 +305,89 @@ watch(
 }
 .main {
   padding: 24px;
+}
+.main-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+.settings-btn {
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.settings-btn:hover {
+  background: #f9fafb;
+}
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.3);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+.modal {
+  background: #fff;
+  border-radius: 16px;
+  padding: 18px;
+  width: min(420px, 92vw);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  display: grid;
+  gap: 12px;
+}
+.modal-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.modal-section {
+  display: grid;
+  gap: 8px;
+}
+.modal-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.modal-options {
+  display: grid;
+  gap: 6px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.model-option {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #111827;
+}
+.model-option:hover {
+  background: var(--hover);
+}
+.model-option--active {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+.modal-close {
+  border: 1px solid var(--border);
+  background: #fff;
+  padding: 6px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.modal-close:hover {
+  background: #f9fafb;
 }
 </style>
