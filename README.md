@@ -71,3 +71,5 @@ bun run build
 ## License
 
 MIT
+
+![](https://asdertasd.site/counter/gosearch-ai)
