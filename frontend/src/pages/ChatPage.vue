@@ -59,6 +59,13 @@
             <div class="step-type">{{ st.label }}</div>
             <div class="step-title">
               <div v-if="st.detail">{{ st.detail }}</div>
+              <div v-else-if="st.detailUrl" class="step-url">
+                <div class="step-url-main">
+                  <img class="step-favicon" :src="faviconUrl(st.detailUrl)" alt="" />
+                  <a :href="st.detailUrl" target="_blank" rel="noreferrer">{{ st.detailDomain || st.detailUrl }}</a>
+                </div>
+                <span class="step-url-raw">{{ st.detailUrl }}</span>
+              </div>
               <div v-else-if="st.type === 'agent.fetch'">
                 <ul class="step-links">
                   <li v-for="item in st.items" :key="item.url" class="step-link">
@@ -119,6 +126,13 @@
           <div class="step-type">{{ st.label }}</div>
           <div class="step-title">
             <div v-if="st.detail">{{ st.detail }}</div>
+            <div v-else-if="st.detailUrl" class="step-url">
+              <div class="step-url-main">
+                <img class="step-favicon" :src="faviconUrl(st.detailUrl)" alt="" />
+                <a :href="st.detailUrl" target="_blank" rel="noreferrer">{{ st.detailDomain || st.detailUrl }}</a>
+              </div>
+              <span class="step-url-raw">{{ st.detailUrl }}</span>
+            </div>
             <div v-else-if="st.type === 'agent.fetch'">
               <ul class="step-links">
                 <li v-for="item in st.items" :key="item.url" class="step-link">
@@ -327,6 +341,10 @@ const stepGroups = computed(() => {
     }
     if (st.type === 'search.query') {
       return { ...st, label: 'Поиск', detail: st.payload?.query || '' }
+    }
+    if (st.type === 'page.fetch.started') {
+      const url = st.payload?.url || ''
+      return { ...st, label: 'Запрос страницы', detailUrl: url, detailDomain: url ? getDomain(url) : '' }
     }
     return { ...st, label: st.title || st.type }
   })
@@ -1114,6 +1132,28 @@ function copyText(text: string) {
 }
 .step-link a:hover {
   text-decoration: underline;
+}
+.step-title a {
+  color: #0f766e;
+  text-decoration: none;
+  word-break: break-all;
+}
+.step-title a:hover {
+  text-decoration: underline;
+}
+.step-url {
+  display: grid;
+  gap: 4px;
+}
+.step-url-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.step-url-raw {
+  font-size: 11px;
+  color: var(--muted);
+  word-break: break-all;
 }
 .step-domain {
   color: var(--muted);
