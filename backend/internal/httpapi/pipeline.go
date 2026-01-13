@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -59,14 +57,6 @@ type cachedPage struct {
 	Snippets  []string
 	FetchedAt time.Time
 }
-type openRouterChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content string `json:"content"`
-		} `json:"delta"`
-	} `json:"choices"`
-}
-
 type openRouterToolChoice struct {
 	Message struct {
 		Content          string     `json:"content"`
@@ -129,25 +119,13 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 		snippets []snippetRecord
 		err      error
 	)
-	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
-		sources, snippets, err = s.searchAndReadIteratively(ctx, runID, query, model)
-		if err != nil {
-			errMsg := "search error: " + err.Error()
-			s.logger.Error().Err(err).Str("run_id", runID).Msg("search pipeline failed")
-			s.finalizeRun(ctx, runID, errMsg)
-			s.publishRunError(runID, errMsg)
-			return
-		}
-		answer = fallbackAnswer(query, snippets)
-	} else {
-		answer, sources, snippets, err = s.runAgentPipeline(ctx, runID, query, model)
-		if err != nil {
-			errMsg := "agent error: " + err.Error()
-			s.logger.Error().Err(err).Str("run_id", runID).Msg("agent pipeline failed")
-			s.finalizeRun(ctx, runID, errMsg)
-			s.publishRunError(runID, errMsg)
-			return
-		}
+	answer, sources, snippets, err = s.runAgentPipeline(ctx, runID, query, model)
+	if err != nil {
+		errMsg := "agent error: " + err.Error()
+		s.logger.Error().Err(err).Str("run_id", runID).Msg("agent pipeline failed")
+		s.finalizeRun(ctx, runID, errMsg)
+		s.publishRunError(runID, errMsg)
+		return
 	}
 
 	s.publishFinal(runID, answer, model)
@@ -160,100 +138,8 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	}
 
 	_, _ = s.pool.Exec(ctx, `update runs set status='finished', finished_at=now() where id=$1`, runID)
+	s.publishStep(ctx, runID, "run.finished", "Завершено", map[string]any{"status": "ok"})
 	s.logger.Info().Str("run_id", runID).Int("sources", len(sources)).Int("snippets", len(snippets)).Msg("pipeline finished")
-}
-
-func (s *Server) searchAndReadIteratively(ctx context.Context, runID, query, model string) ([]sourceRecord, []snippetRecord, error) {
-	queue := []string{query}
-	used := map[string]struct{}{}
-	allResults := make([]searchResult, 0, 32)
-	allSources := make([]sourceRecord, 0, s.cfg.SearchMaxSources)
-	allSnippets := make([]snippetRecord, 0, s.cfg.SearchMaxSources*s.cfg.SnippetMaxPerSource)
-	seenURLs := map[string]struct{}{}
-	targetSnippets := s.cfg.SearchMaxSources
-	if targetSnippets < 3 {
-		targetSnippets = 3
-	}
-
-	queryIndex := 1
-	for len(queue) > 0 && len(used) < s.cfg.SearchMaxQueries {
-		q := strings.TrimSpace(queue[0])
-		queue = queue[1:]
-		if q == "" {
-			continue
-		}
-		key := strings.ToLower(q)
-		if _, ok := used[key]; ok {
-			continue
-		}
-		used[key] = struct{}{}
-
-		s.logger.Debug().Str("run_id", runID).Int("query_index", queryIndex).Str("query", q).Msg("search query")
-		results, err := s.searchProvider(ctx, runID, q, queryIndex, s.cfg.SearchMaxQueries)
-		if err != nil {
-			return nil, nil, err
-		}
-		allResults = append(allResults, results...)
-		ranked := rankAndDedup(allResults)
-		s.logger.Debug().Str("run_id", runID).Int("results", len(ranked)).Msg("search ranked results")
-
-		remaining := s.cfg.SearchMaxSources - len(seenURLs)
-		if remaining <= 0 {
-			break
-		}
-
-		selected := selectSourcesExcluding(ranked, remaining, seenURLs)
-		if len(selected) == 0 {
-			queryIndex++
-			continue
-		}
-
-		s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
-			"urls": urlsFromResults(selected),
-		})
-
-		sources, err := s.persistSources(ctx, runID, selected)
-		if err != nil {
-			return nil, nil, err
-		}
-		for _, src := range sources {
-			seenURLs[src.URL] = struct{}{}
-		}
-		allSources = append(allSources, sources...)
-
-		snips, err := s.readAndSnippet(ctx, runID, sources)
-		if err != nil {
-			return nil, nil, err
-		}
-		allSnippets = append(allSnippets, snips...)
-
-		if len(allSnippets) >= targetSnippets {
-			break
-		}
-
-		if len(used) < s.cfg.SearchMaxQueries {
-			more, err := s.generateFollowupQueries(ctx, query, allSources, allSnippets, model, s.cfg.SearchMaxQueries-len(used))
-			if err != nil {
-				s.logger.Warn().Err(err).Str("run_id", runID).Msg("generate followup queries failed")
-			} else {
-				for _, candidate := range more {
-					clean := strings.TrimSpace(candidate)
-					if clean == "" {
-						continue
-					}
-					cKey := strings.ToLower(clean)
-					if _, ok := used[cKey]; ok {
-						continue
-					}
-					queue = append(queue, clean)
-				}
-			}
-		}
-
-		queryIndex++
-	}
-
-	return allSources, allSnippets, nil
 }
 
 func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model string) (string, []sourceRecord, []snippetRecord, error) {
@@ -266,10 +152,12 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 		model = s.cfg.OpenRouterModels[0]
 	}
 
+	nowLocal := time.Now().Format("2006-01-02 15:04:05 MST")
 	messages := make([]map[string]any, 0, len(history)+2)
 	messages = append(messages, map[string]any{
 		"role": "system",
-		"content": "You are the primary research agent. Decide whether to answer directly or use tools.\n" +
+		"content": "Current local date and time: " + nowLocal + "\n\n" +
+			"You are the primary research agent. Decide whether to answer directly or use tools.\n" +
 			"Use tools to search and fetch sources when needed. Keep all tool usage in this single conversation.\n" +
 			"Rules:\n" +
 			"- Cite sources as [n].\n" +
@@ -1013,129 +901,6 @@ func (s *Server) storeSnippet(ctx context.Context, sourceID, quote string) error
 	return err
 }
 
-func (s *Server) generateAnswer(ctx context.Context, runID, query, model string, sources []sourceRecord, snippets []snippetRecord, history []chatMessage) (string, error) {
-	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
-		s.logger.Debug().Str("run_id", runID).Msg("openrouter disabled, using fallback answer")
-		return fallbackAnswer(query, snippets), nil
-	}
-
-	messages := make([]map[string]any, 0, len(history)+2)
-	messages = append(messages, map[string]any{
-		"role":    "system",
-		"content": "You are a research assistant. Use only the provided sources and cite them as [n]. Keep the answer concise and structured in Markdown.\n\nMath: use LaTeX delimiters. Inline formulas with $...$, display formulas with $$...$$. Do not put formulas in square brackets.\nExamples: Inline $x_{n+1}=r x_n(1-x_n)$. Display:\n$$x_{n+1}=r x_n(1-x_n)$$",
-	})
-	for _, msg := range history {
-		role := strings.TrimSpace(msg.Role)
-		if role != "user" && role != "assistant" && role != "system" {
-			continue
-		}
-		content := strings.TrimSpace(msg.Content)
-		if content == "" {
-			continue
-		}
-		messages = append(messages, map[string]any{
-			"role":    role,
-			"content": content,
-		})
-	}
-	messages = append(messages, map[string]any{
-		"role":    "user",
-		"content": buildPrompt(query, sources, snippets),
-	})
-
-	reqBody := map[string]any{
-		"model":    model,
-		"stream":   true,
-		"messages": messages,
-	}
-	payload, _ := json.Marshal(reqBody)
-
-	reqURL := strings.TrimRight(s.cfg.OpenRouterBaseURL, "/") + "/chat/completions"
-	answer := strings.Builder{}
-	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
-		if attempt > 0 {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
-			time.Sleep(s.cfg.OpenRouterRetryDelay)
-		}
-
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, bytes.NewReader(payload))
-		if err != nil {
-			return "", err
-		}
-		req.Header.Set("Authorization", "Bearer "+s.cfg.OpenRouterAPIKey)
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("HTTP-Referer", s.cfg.BaseURL)
-		req.Header.Set("X-Title", "gosearch-ai")
-
-		client := &http.Client{Timeout: s.cfg.OpenRouterTimeout}
-		resp, err := client.Do(req)
-		if err != nil {
-			if shouldRetryOpenRouter(err, 0) && attempt < s.cfg.OpenRouterRetries {
-				continue
-			}
-			s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter request failed")
-			return "", err
-		}
-
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-			_ = resp.Body.Close()
-			if shouldRetryOpenRouter(nil, resp.StatusCode) && attempt < s.cfg.OpenRouterRetries {
-				continue
-			}
-			s.logger.Error().Int("status", resp.StatusCode).Str("run_id", runID).Msg("openrouter non-200")
-			return "", fmt.Errorf("openrouter status %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
-		}
-
-		scanner := bufio.NewScanner(resp.Body)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		hadDelta := false
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line == "" || !strings.HasPrefix(line, "data:") {
-				continue
-			}
-			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			if data == "[DONE]" {
-				break
-			}
-
-			var chunk openRouterChunk
-			if err := json.Unmarshal([]byte(data), &chunk); err != nil {
-				continue
-			}
-			if len(chunk.Choices) == 0 {
-				continue
-			}
-			delta := chunk.Choices[0].Delta.Content
-			if delta == "" {
-				continue
-			}
-			hadDelta = true
-			answer.WriteString(delta)
-			s.publishAnswerDelta(runID, delta)
-		}
-		err = scanner.Err()
-		_ = resp.Body.Close()
-		if err != nil && !errors.Is(err, context.Canceled) {
-			if shouldRetryOpenRouter(err, 0) && !hadDelta && attempt < s.cfg.OpenRouterRetries {
-				continue
-			}
-			s.logger.Error().Err(err).Str("run_id", runID).Msg("openrouter stream error")
-			return "", err
-		}
-		break
-	}
-
-	if answer.Len() == 0 {
-		s.logger.Warn().Str("run_id", runID).Msg("openrouter empty answer, using fallback")
-		return fallbackAnswer(query, snippets), nil
-	}
-	return answer.String(), nil
-}
-
 func (s *Server) openRouterToolStep(ctx context.Context, model string, messages []map[string]any, tools []map[string]any) (toolStepResponse, error) {
 	if strings.TrimSpace(model) == "" {
 		model = s.cfg.OpenRouterModels[0]
@@ -1322,64 +1087,6 @@ func (s *Server) finalizeRun(ctx context.Context, runID, errMsg string) {
 	_, _ = s.pool.Exec(ctx, `update runs set status='failed', finished_at=now(), error=$2 where id=$1`, runID, errMsg)
 }
 
-func selectSources(results []searchResult, maxSources int) []searchResult {
-	out := make([]searchResult, 0, maxSources)
-	seenDomains := map[string]struct{}{}
-	seenURLs := map[string]struct{}{}
-	for _, res := range results {
-		domain := domainFromURL(res.URL)
-		if domain == "" {
-			continue
-		}
-		key := res.Canonical
-		if key == "" {
-			key = res.URL
-		}
-		if _, ok := seenURLs[key]; ok {
-			continue
-		}
-		if _, ok := seenDomains[domain]; ok {
-			continue
-		}
-		seenDomains[domain] = struct{}{}
-		seenURLs[key] = struct{}{}
-		out = append(out, res)
-		if len(out) >= maxSources {
-			break
-		}
-	}
-	return out
-}
-
-func selectSourcesExcluding(results []searchResult, maxSources int, seenURLs map[string]struct{}) []searchResult {
-	out := make([]searchResult, 0, maxSources)
-	seenDomains := map[string]struct{}{}
-	for _, res := range results {
-		if len(out) >= maxSources {
-			break
-		}
-		domain := domainFromURL(res.URL)
-		if domain == "" {
-			continue
-		}
-		key := res.Canonical
-		if key == "" {
-			key = res.URL
-		}
-		if key == "" {
-			continue
-		}
-		if _, ok := seenURLs[key]; ok {
-			continue
-		}
-		if _, ok := seenDomains[domain]; ok {
-			continue
-		}
-		seenDomains[domain] = struct{}{}
-		out = append(out, res)
-	}
-	return out
-}
 func urlsFromResults(results []searchResult) []string {
 	out := make([]string, 0, len(results))
 	for _, res := range results {
@@ -1400,43 +1107,6 @@ func normalizeResults(results []searchResult) []map[string]any {
 		})
 	}
 	return out
-}
-
-func rankAndDedup(results []searchResult) []searchResult {
-	dedup := map[string]searchResult{}
-	for _, res := range results {
-		key := res.Canonical
-		if key == "" {
-			key = res.URL
-		}
-		if key == "" {
-			continue
-		}
-		if existing, ok := dedup[key]; ok {
-			if res.Score > existing.Score {
-				dedup[key] = res
-			} else {
-				if existing.Title == "" && res.Title != "" {
-					existing.Title = res.Title
-				}
-				if existing.Snippet == "" && res.Snippet != "" {
-					existing.Snippet = res.Snippet
-				}
-				dedup[key] = existing
-			}
-			continue
-		}
-		dedup[key] = res
-	}
-
-	sorted := make([]searchResult, 0, len(dedup))
-	for _, res := range dedup {
-		sorted = append(sorted, res)
-	}
-	sort.Slice(sorted, func(i, j int) bool {
-		return sorted[i].Score > sorted[j].Score
-	})
-	return sorted
 }
 
 func domainFromURL(raw string) string {
@@ -1621,114 +1291,6 @@ func fallbackAnswer(query string, snippets []snippetRecord) string {
 
 func normalizeWhitespace(text string) string {
 	return strings.Join(strings.Fields(text), " ")
-}
-
-func (s *Server) generateFollowupQueries(ctx context.Context, query string, sources []sourceRecord, snippets []snippetRecord, model string, max int) ([]string, error) {
-	if max <= 0 {
-		return nil, nil
-	}
-	if strings.TrimSpace(s.cfg.OpenRouterAPIKey) == "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(model) == "" {
-		model = s.cfg.OpenRouterModels[0]
-	}
-
-	type quickSource struct {
-		Title string `json:"title"`
-		URL   string `json:"url"`
-	}
-	type quickSnippet struct {
-		URL   string `json:"url"`
-		Quote string `json:"quote"`
-	}
-
-	qs := make([]quickSource, 0, len(sources))
-	for _, src := range sources {
-		qs = append(qs, quickSource{Title: src.Title, URL: src.URL})
-	}
-	qsSnips := make([]quickSnippet, 0, len(snippets))
-	for _, snip := range snippets {
-		qsSnips = append(qsSnips, quickSnippet{URL: snip.URL, Quote: snip.Quote})
-	}
-
-	prompt := map[string]any{
-		"query":    query,
-		"sources":  qs,
-		"snippets": qsSnips,
-		"max":      max,
-	}
-	promptJSON, _ := json.Marshal(prompt)
-
-	messages := []map[string]any{
-		{
-			"role":    "system",
-			"content": "You propose follow-up web search queries. Return ONLY a JSON array of strings. Do not include explanations.",
-		},
-		{
-			"role":    "user",
-			"content": "Generate focused follow-up search queries to fill missing information. Use the context JSON:\n" + string(promptJSON),
-		},
-	}
-
-	reqBody := map[string]any{
-		"model":    model,
-		"stream":   false,
-		"messages": messages,
-	}
-	payload, _ := json.Marshal(reqBody)
-
-	var payloadResp struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	for attempt := 0; attempt <= s.cfg.OpenRouterRetries; attempt++ {
-		body, err := s.openRouterRequest(ctx, payload)
-		if err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal(body, &payloadResp); err != nil {
-			if isJSONTruncated(err) && attempt < s.cfg.OpenRouterRetries {
-				continue
-			}
-			return nil, err
-		}
-		break
-	}
-	if len(payloadResp.Choices) == 0 {
-		return nil, nil
-	}
-	raw := strings.TrimSpace(payloadResp.Choices[0].Message.Content)
-	if raw == "" {
-		return nil, nil
-	}
-
-	var queries []string
-	if err := json.Unmarshal([]byte(raw), &queries); err != nil {
-		return nil, err
-	}
-
-	out := make([]string, 0, len(queries))
-	seen := map[string]struct{}{}
-	for _, q := range queries {
-		q = strings.TrimSpace(q)
-		if q == "" {
-			continue
-		}
-		key := strings.ToLower(q)
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		out = append(out, q)
-		if len(out) >= max {
-			break
-		}
-	}
-	return out, nil
 }
 
 func truncateRunes(input string, max int) string {
