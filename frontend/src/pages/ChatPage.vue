@@ -346,6 +346,9 @@ const stepGroups = computed(() => {
       const url = st.payload?.url || ''
       return { ...st, label: 'Запрос страницы', detailUrl: url, detailDomain: url ? getDomain(url) : '' }
     }
+    if (st.type === 'run.finished') {
+      return { ...st, label: 'Pipeline завершен' }
+    }
     return { ...st, label: st.title || st.type }
   })
 })
