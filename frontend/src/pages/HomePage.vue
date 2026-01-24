@@ -103,12 +103,12 @@ onMounted(() => {
 .logo-text {
   font-size: 42px;
   font-weight: 500;
-  color: #111827;
+  color: var(--fg);
   letter-spacing: -0.02em;
 }
 .search-card {
   width: min(860px, 92%);
-  background: #fff;
+  background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 14px;
@@ -126,7 +126,8 @@ onMounted(() => {
   border: 1px solid var(--border);
   display: grid;
   place-items: center;
-  color: #0f766e;
+  color: var(--accent);
+  background: var(--card-bg);
 }
 .search-input {
   font-size: 16px;
@@ -140,10 +141,15 @@ onMounted(() => {
   overflow-y: auto;
   line-height: 1.5;
   font-family: inherit;
+  background: var(--input-bg);
+  color: var(--fg);
+}
+.search-input::placeholder {
+  color: var(--muted);
 }
 .search-input:focus {
-  border-color: #0f766e;
-  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-light);
 }
 .model-picker {
   position: relative;
@@ -153,10 +159,14 @@ onMounted(() => {
   height: 44px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   display: grid;
   place-items: center;
   cursor: pointer;
+  color: var(--fg);
+}
+.model-trigger:hover:not(:disabled) {
+  background: var(--hover);
 }
 .model-trigger:disabled {
   cursor: not-allowed;
@@ -166,7 +176,7 @@ onMounted(() => {
   position: absolute;
   right: 0;
   top: 52px;
-  background: #fff;
+  background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px;
@@ -174,7 +184,7 @@ onMounted(() => {
   gap: 6px;
   min-width: 220px;
   z-index: 10;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
 }
 .model-option {
   border: 0;
@@ -184,21 +194,21 @@ onMounted(() => {
   border-radius: 10px;
   cursor: pointer;
   font-size: 12px;
-  color: #111827;
+  color: var(--fg);
 }
 .model-option:hover {
   background: var(--hover);
 }
 .model-option--active {
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
+  background: var(--accent-light);
+  color: var(--accent);
 }
 .send {
   width: 44px;
   height: 44px;
   border-radius: 12px;
   border: 0;
-  background: #0f766e;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
   display: grid;

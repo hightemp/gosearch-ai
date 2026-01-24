@@ -91,22 +91,53 @@
       <router-view />
     </main>
     <div v-if="showSettings" class="modal-backdrop" @click.self="showSettings = false">
-      <div class="modal">
-        <div class="modal-title">Настройки</div>
-        <div class="modal-section">
-          <div class="modal-label">Модель ответа</div>
-          <div class="modal-options">
-            <button
-              v-for="m in models"
-              :key="m"
-              class="model-option"
-              :class="{ 'model-option--active': m === selectedModel }"
-              @click="setModel(m)"
-            >
-              {{ m }}
-            </button>
+      <div class="modal settings-modal">
+        <div class="modal-header">
+          <div class="modal-title">Настройки</div>
+          <button class="modal-close-icon" @click="showSettings = false" aria-label="Закрыть">
+            <X class="icon icon--small" />
+          </button>
+        </div>
+
+        <div class="settings-content">
+          <div class="settings-section">
+            <div class="settings-section-title">Внешний вид</div>
+            <div class="settings-item">
+              <div class="settings-item-label">Тема оформления</div>
+              <div class="theme-switcher">
+                <button
+                  v-for="opt in themeOptions"
+                  :key="opt.value"
+                  class="theme-option"
+                  :class="{ 'theme-option--active': theme === opt.value }"
+                  @click="setTheme(opt.value)"
+                >
+                  <component :is="opt.icon" class="icon icon--small" />
+                  <span>{{ opt.label }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="settings-section-title">Модель</div>
+            <div class="settings-item">
+              <div class="settings-item-label">Модель ответа</div>
+              <div class="modal-options">
+                <button
+                  v-for="m in models"
+                  :key="m"
+                  class="model-option"
+                  :class="{ 'model-option--active': m === selectedModel }"
+                  @click="setModel(m)"
+                >
+                  {{ m }}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
+
         <div class="modal-actions">
           <button class="modal-close" @click="showSettings = false">Закрыть</button>
         </div>
@@ -229,11 +260,12 @@
 </template>
 
 <script setup lang="ts">
-import { Bookmark, ChevronLeft, ChevronRight, Library, MessageSquare, Plus, Settings, Trash2, X } from 'lucide-vue-next'
+import { Bookmark, ChevronLeft, ChevronRight, Library, MessageSquare, Monitor, Moon, Plus, Settings, Sun, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from './api'
 import { useModelStore } from './modelStore'
+import { useSettingsStore, type Theme } from './settingsStore'
 
 type ChatItem = {
   id: string
@@ -272,6 +304,13 @@ const bookmarksModalTotalPages = ref(1)
 const bookmarksModalLoading = ref(false)
 const bookmarksModalLimit = 20
 const { models, selectedModel, loadModels, setModel } = useModelStore()
+const { theme, setTheme, initTheme } = useSettingsStore()
+
+const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
+  { value: 'light', label: 'Светлая', icon: Sun },
+  { value: 'dark', label: 'Тёмная', icon: Moon },
+  { value: 'system', label: 'Системная', icon: Monitor }
+]
 
 const activeChatId = computed(() => String(route.params.chatId || '').trim())
 
@@ -438,6 +477,7 @@ async function deleteChatFromBookmarksModal(chatId: string) {
 onMounted(() => {
   void loadSidebar()
   void loadModels()
+  initTheme()
 })
 
 watch(
@@ -474,7 +514,7 @@ watch(showBookmarksModal, (val) => {
   align-items: center;
   gap: 8px;
   padding: 16px 8px;
-  background: #f9fafb;
+  background: var(--sidebar-bg);
   border-right: 1px solid var(--border);
 }
 .icon-btn {
@@ -482,22 +522,23 @@ watch(showBookmarksModal, (val) => {
   height: 40px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: #374151;
-  transition: background 0.15s, color 0.15s;
+  color: var(--fg);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .icon-btn:hover {
-  background: #0f766e;
+  background: var(--accent);
   color: #fff;
-  border-color: #0f766e;
+  border-color: var(--accent);
 }
 .sidebar {
   border-right: 1px solid var(--border);
   padding: 20px 16px;
   overflow: hidden;
+  background: var(--sidebar-bg);
 }
 .brand {
   font-size: 16px;
@@ -552,7 +593,7 @@ watch(showBookmarksModal, (val) => {
   background: var(--hover);
 }
 .nav-item--active {
-  background: #eef2f2;
+  background: var(--accent-light);
 }
 .nav-title {
   font-size: 13px;
@@ -569,7 +610,7 @@ watch(showBookmarksModal, (val) => {
   border: 0;
   background: transparent;
   font-size: 11px;
-  color: #0f766e;
+  color: var(--accent);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -581,15 +622,15 @@ watch(showBookmarksModal, (val) => {
   background: var(--hover);
 }
 .nav-action--active {
-  color: #0f766e;
-  background: rgba(15, 118, 110, 0.1);
+  color: var(--accent);
+  background: var(--accent-light);
 }
 .nav-action--danger {
-  color: #6b7280;
+  color: var(--muted);
 }
 .nav-action--danger:hover {
-  color: #dc2626;
-  background: rgba(220, 38, 38, 0.1);
+  color: var(--danger);
+  background: var(--danger-light);
 }
 .icon {
   width: 16px;
@@ -608,7 +649,7 @@ watch(showBookmarksModal, (val) => {
   height: 18px;
 }
 .icon--active {
-  color: #0f766e;
+  color: var(--accent);
 }
 .nav-muted {
   margin-top: 10px;
@@ -625,16 +666,17 @@ watch(showBookmarksModal, (val) => {
 }
 .settings-btn {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 12px;
   width: 36px;
   height: 36px;
   display: grid;
   place-items: center;
   cursor: pointer;
+  color: var(--fg);
 }
 .settings-btn:hover {
-  background: #f9fafb;
+  background: var(--hover);
 }
 .modal-backdrop {
   position: fixed;
@@ -645,13 +687,14 @@ watch(showBookmarksModal, (val) => {
   z-index: 50;
 }
 .modal {
-  background: #fff;
+  background: var(--card-bg);
   border-radius: 16px;
   padding: 18px;
   width: min(420px, 92vw);
-  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+  box-shadow: 0 20px 40px rgba(15, 23, 42, 0.3);
   display: grid;
   gap: 12px;
+  border: 1px solid var(--border);
 }
 .modal-title {
   font-size: 14px;
@@ -679,14 +722,14 @@ watch(showBookmarksModal, (val) => {
   border-radius: 10px;
   cursor: pointer;
   font-size: 12px;
-  color: #111827;
+  color: var(--fg);
 }
 .model-option:hover {
   background: var(--hover);
 }
 .model-option--active {
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
+  background: var(--accent-light);
+  color: var(--accent);
 }
 .modal-actions {
   display: flex;
@@ -694,13 +737,15 @@ watch(showBookmarksModal, (val) => {
 }
 .modal-close {
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   padding: 6px 12px;
   border-radius: 10px;
   cursor: pointer;
+  color: var(--fg);
+  font-size: 13px;
 }
 .modal-close:hover {
-  background: #f9fafb;
+  background: var(--hover);
 }
 .modal-header {
   display: flex;
@@ -769,7 +814,7 @@ watch(showBookmarksModal, (val) => {
   background: var(--hover);
 }
 .library-item--active {
-  background: rgba(15, 118, 110, 0.1);
+  background: var(--accent-light);
 }
 .library-action {
   border: 0;
@@ -779,18 +824,18 @@ watch(showBookmarksModal, (val) => {
   place-items: center;
   padding: 8px;
   border-radius: 8px;
-  color: #6b7280;
+  color: var(--muted);
 }
 .library-action:hover {
   background: var(--hover);
 }
 .library-action--active {
-  color: #0f766e;
-  background: rgba(15, 118, 110, 0.1);
+  color: var(--accent);
+  background: var(--accent-light);
 }
 .library-action--danger:hover {
-  color: #dc2626;
-  background: rgba(220, 38, 38, 0.1);
+  color: var(--danger);
+  background: var(--danger-light);
 }
 .library-item-title {
   font-size: 13px;
@@ -816,10 +861,11 @@ watch(showBookmarksModal, (val) => {
   height: 32px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   display: grid;
   place-items: center;
   cursor: pointer;
+  color: var(--fg);
 }
 .pagination-btn:hover:not(:disabled) {
   background: var(--hover);
@@ -831,5 +877,69 @@ watch(showBookmarksModal, (val) => {
 .pagination-info {
   font-size: 12px;
   color: var(--muted);
+}
+
+/* Settings Modal */
+.settings-modal {
+  width: min(480px, 92vw);
+  max-height: 80vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.settings-content {
+  overflow-y: auto;
+  display: grid;
+  gap: 20px;
+  padding: 8px 0;
+}
+.settings-section {
+  display: grid;
+  gap: 12px;
+}
+.settings-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.settings-item {
+  display: grid;
+  gap: 8px;
+}
+.settings-item-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--fg);
+}
+
+/* Theme Switcher */
+.theme-switcher {
+  display: flex;
+  gap: 8px;
+}
+.theme-option {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  cursor: pointer;
+  color: var(--fg);
+  font-size: 12px;
+  transition: all 0.15s;
+}
+.theme-option:hover {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+.theme-option--active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent);
 }
 </style>

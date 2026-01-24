@@ -757,7 +757,7 @@ function copyText(text: string) {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--card-bg);
   font-size: 12px;
   color: var(--muted);
   cursor: pointer;
@@ -768,12 +768,12 @@ function copyText(text: string) {
   color: var(--fg);
 }
 .bookmark-btn--active {
-  background: rgba(15, 118, 110, 0.1);
-  border-color: #0f766e;
-  color: #0f766e;
+  background: var(--accent-light);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 .bookmark-btn--active:hover {
-  background: rgba(15, 118, 110, 0.15);
+  background: var(--accent-light);
 }
 .bookmark-icon {
   width: 14px;
@@ -790,16 +790,16 @@ function copyText(text: string) {
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: #fff;
+  background: var(--card-bg);
   font-size: 12px;
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
 }
 .delete-btn:hover {
-  background: rgba(220, 38, 38, 0.1);
-  border-color: #dc2626;
-  color: #dc2626;
+  background: var(--danger-light);
+  border-color: var(--danger);
+  color: var(--danger);
 }
 .delete-icon {
   width: 14px;
@@ -832,7 +832,7 @@ function copyText(text: string) {
 .error-text {
   margin-top: 6px;
   font-size: 12px;
-  color: #b91c1c;
+  color: var(--danger);
 }
 .answer {
   margin-top: 16px;
@@ -846,7 +846,7 @@ function copyText(text: string) {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 16px;
-  background: #fff;
+  background: var(--card-bg);
   overflow: hidden;
 }
 .message-list {
@@ -865,8 +865,8 @@ function copyText(text: string) {
 }
 .copy-btn {
   border: 1px solid var(--border);
-  background: #fff;
-  color: #111827;
+  background: var(--card-bg);
+  color: var(--fg);
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 999px;
@@ -876,7 +876,7 @@ function copyText(text: string) {
   justify-content: center;
 }
 .copy-btn:hover {
-  background: #f9fafb;
+  background: var(--hover);
 }
 .copy-icon {
   width: 14px;
@@ -892,9 +892,9 @@ function copyText(text: string) {
   gap: 8px;
 }
 .model-badge {
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #111827;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 999px;
@@ -903,7 +903,7 @@ function copyText(text: string) {
 }
 .message-body {
   font-size: 14px;
-  color: #111827;
+  color: var(--fg);
   line-height: 1.6;
   word-wrap: break-word;
   overflow-wrap: break-word;
@@ -929,11 +929,11 @@ function copyText(text: string) {
 }
 .message--assistant .message-body :global(blockquote) {
   padding-left: 12px;
-  border-left: 3px solid #e5e7eb;
-  color: #374151;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
 }
 .message--assistant .message-body :global(pre) {
-  background: #f3f4f6;
+  background: var(--hover);
   border-radius: 10px;
   padding: 12px;
   overflow-x: auto;
@@ -946,9 +946,9 @@ function copyText(text: string) {
   position: absolute;
   top: 8px;
   right: 8px;
-  border: 1px solid #e5e7eb;
-  background: #fff;
-  color: #111827;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--fg);
   font-size: 10px;
   padding: 4px 8px;
   border-radius: 999px;
@@ -958,7 +958,7 @@ function copyText(text: string) {
   justify-content: center;
 }
 .message--assistant .message-body :global(.code-copy:hover) {
-  background: #f9fafb;
+  background: var(--hover);
 }
 .message--assistant .message-body :global(table) {
   width: 100%;
@@ -968,13 +968,13 @@ function copyText(text: string) {
 }
 .message--assistant .message-body :global(th),
 .message--assistant .message-body :global(td) {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border);
   padding: 8px 10px;
   text-align: left;
   vertical-align: top;
 }
 .message--assistant .message-body :global(th) {
-  background: #f9fafb;
+  background: var(--hover);
   font-weight: 600;
 }
 .message--assistant .message-body :global(code) {
@@ -982,7 +982,7 @@ function copyText(text: string) {
   font-size: 12px;
 }
 .message--assistant .message-body :global(.citation) {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -990,11 +990,11 @@ function copyText(text: string) {
   text-decoration: underline;
 }
 .message--assistant {
-  border-left: 3px solid #0f766e;
+  border-left: 3px solid var(--accent);
   padding-left: 12px;
 }
 .message--user {
-  border-left: 3px solid #e5e7eb;
+  border-left: 3px solid var(--border);
   padding-left: 12px;
 }
 .answer-content :global(p) {
@@ -1013,15 +1013,15 @@ function copyText(text: string) {
 .answer-content :global(blockquote) {
   margin: 0 0 12px 0;
   padding-left: 12px;
-  border-left: 3px solid #e5e7eb;
-  color: #374151;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
 }
 .answer-content :global(ul) {
   margin: 0 0 12px 20px;
   padding: 0;
 }
 .answer-content :global(pre) {
-  background: #f3f4f6;
+  background: var(--hover);
   border-radius: 10px;
   padding: 12px;
   overflow-x: auto;
@@ -1032,7 +1032,7 @@ function copyText(text: string) {
   font-size: 12px;
 }
 .answer-content :global(.citation) {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1043,7 +1043,7 @@ function copyText(text: string) {
   width: 8px;
   height: 8px;
   border-radius: 999px;
-  background: #0f766e;
+  background: var(--accent);
 }
 .loading-dots {
   display: inline-flex;
@@ -1092,7 +1092,7 @@ function copyText(text: string) {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
-  background: #fff;
+  background: var(--card-bg);
 }
 .sources-empty {
   color: var(--muted);
@@ -1145,11 +1145,11 @@ function copyText(text: string) {
   grid-template-columns: auto 1fr;
   gap: 8px;
   font-size: 13px;
-  color: #111827;
+  color: var(--fg);
 }
 .snippet-ref {
   font-weight: 600;
-  color: #0f766e;
+  color: var(--accent);
 }
 .links-list {
   list-style: none;
@@ -1168,10 +1168,10 @@ function copyText(text: string) {
   width: 20px;
   height: 20px;
   border-radius: 6px;
-  background: #f3f4f6;
+  background: var(--hover);
 }
 .link-meta a {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1195,7 +1195,7 @@ function copyText(text: string) {
   letter-spacing: 0.02em;
 }
 .source-item a {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
 }
 .source-item a:hover {
@@ -1213,7 +1213,7 @@ function copyText(text: string) {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
-  background: #fff;
+  background: var(--card-bg);
   display: grid;
   gap: 10px;
 }
@@ -1226,11 +1226,11 @@ function copyText(text: string) {
 .step-type {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 12px;
-  color: #374151;
+  color: var(--muted);
 }
 .step-title {
   font-size: 13px;
-  color: #111827;
+  color: var(--fg);
 }
 .step-links {
   list-style: none;
@@ -1250,10 +1250,10 @@ function copyText(text: string) {
   width: 16px;
   height: 16px;
   border-radius: 4px;
-  background: #f3f4f6;
+  background: var(--hover);
 }
 .step-link a {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
   font-weight: 600;
 }
@@ -1261,7 +1261,7 @@ function copyText(text: string) {
   text-decoration: underline;
 }
 .step-title a {
-  color: #0f766e;
+  color: var(--accent);
   text-decoration: none;
   word-break: break-all;
 }
@@ -1293,7 +1293,7 @@ function copyText(text: string) {
   display: grid;
   grid-template-columns: 1fr auto auto;
   gap: 10px;
-  background: #fff;
+  background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 12px;
@@ -1309,17 +1309,29 @@ function copyText(text: string) {
   line-height: 1.5;
   padding: 10px 0;
   font-family: inherit;
+  background: transparent;
+  color: var(--fg);
+}
+.composer-input::placeholder {
+  color: var(--muted);
 }
 .composer-send {
   width: 44px;
   height: 44px;
   border-radius: 12px;
   border: 0;
-  background: #0f766e;
+  background: var(--accent);
   color: #fff;
   cursor: pointer;
   display: grid;
   place-items: center;
+}
+.composer-send:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.composer-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 .composer-icon {
   width: 18px;
@@ -1333,10 +1345,14 @@ function copyText(text: string) {
   height: 44px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #fff;
+  background: var(--card-bg);
   display: grid;
   place-items: center;
   cursor: pointer;
+  color: var(--fg);
+}
+.composer .model-trigger:hover:not(:disabled) {
+  background: var(--hover);
 }
 .composer .model-trigger:disabled {
   cursor: not-allowed;
@@ -1346,7 +1362,7 @@ function copyText(text: string) {
   position: absolute;
   right: 0;
   bottom: 52px;
-  background: #fff;
+  background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 8px;
@@ -1354,7 +1370,7 @@ function copyText(text: string) {
   gap: 6px;
   min-width: 220px;
   z-index: 20;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
 }
 .composer .model-option {
   border: 0;
@@ -1364,13 +1380,13 @@ function copyText(text: string) {
   border-radius: 10px;
   cursor: pointer;
   font-size: 12px;
-  color: #111827;
+  color: var(--fg);
 }
 .composer .model-option:hover {
   background: var(--hover);
 }
 .composer .model-option--active {
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
+  background: var(--accent-light);
+  color: var(--accent);
 }
 </style>

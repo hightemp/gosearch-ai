@@ -4,7 +4,32 @@
   --muted: #6b7280;
   --border: #e5e7eb;
   --hover: rgba(17, 24, 39, 0.04);
+  --card-bg: #ffffff;
+  --sidebar-bg: #f9fafb;
+  --input-bg: #ffffff;
+  --accent: #0f766e;
+  --accent-hover: #0d6d64;
+  --accent-light: rgba(15, 118, 110, 0.1);
+  --danger: #dc2626;
+  --danger-light: rgba(220, 38, 38, 0.1);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+}
+
+/* Dark theme */
+html.dark {
+  --bg: #0f172a;
+  --fg: #f1f5f9;
+  --muted: #94a3b8;
+  --border: #334155;
+  --hover: rgba(241, 245, 249, 0.06);
+  --card-bg: #1e293b;
+  --sidebar-bg: #1e293b;
+  --input-bg: #1e293b;
+  --accent: #14b8a6;
+  --accent-hover: #0d9488;
+  --accent-light: rgba(20, 184, 166, 0.15);
+  --danger: #f87171;
+  --danger-light: rgba(248, 113, 113, 0.15);
 }
 
 * {
