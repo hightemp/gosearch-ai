@@ -1,44 +1,12 @@
 <template>
   <div class="chat">
-    <div class="chat-header">
-      <div class="tabs">
-        <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">
-          <MessageSquare class="tab-icon" />
-          Ответ
-        </button>
-        <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">
-          <ListChecks class="tab-icon" />
-          Шаги
-        </button>
-        <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">
-          <Link class="tab-icon" />
-          Ссылки
-        </button>
-        <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">
-          <Image class="tab-icon" />
-          Изображения
-        </button>
-      </div>
-      <div v-if="currentChatId" class="chat-actions">
-        <button
-          class="bookmark-btn"
-          :class="{ 'bookmark-btn--active': isBookmarked }"
-          :title="isBookmarked ? 'Убрать из избранного' : 'Добавить в избранное'"
-          @click="toggleBookmark"
-        >
-          <Bookmark class="bookmark-icon" />
-          {{ isBookmarked ? 'В избранном' : 'В избранное' }}
-        </button>
-        <button
-          class="delete-btn"
-          title="Удалить диалог"
-          @click="deleteCurrentChat"
-        >
-          <Trash2 class="delete-icon" />
-          Удалить
-        </button>
-      </div>
-    </div>
+    <ChatHeader
+      v-model:active-tab="activeTab"
+      :show-actions="!!currentChatId"
+      :is-bookmarked="isBookmarked"
+      @toggle-bookmark="toggleBookmark"
+      @delete="deleteCurrentChat"
+    />
 
     <div class="progress">
       <div class="dot" />
@@ -46,158 +14,40 @@
     </div>
     <div v-if="runError" class="error-text">{{ runError }}</div>
 
+    <!-- Answer Tab -->
     <div v-if="activeTab === 'answer'" class="answer">
       <div class="answer-title">Ответ</div>
       <div class="answer-card" ref="answerRef">
-        <div v-if="messages.length" class="message-list">
-          <div v-for="msg in messages" :key="msg.id" class="message" :class="`message--${msg.role}`">
-            <div class="message-header">
-              <div class="message-role">
-                {{ msg.roleLabel }}
-                <span v-if="msg.modelLabel" class="model-badge">{{ msg.modelLabel }}</span>
-              </div>
-              <button v-if="msg.role === 'assistant'" class="copy-btn" @click="copyText(msg.content)" aria-label="Copy">
-                <Copy class="copy-icon" />
-              </button>
-            </div>
-            <div class="message-body" v-if="msg.role === 'assistant'" v-html="msg.html" />
-            <div class="message-body" v-else>{{ msg.content }}</div>
-          </div>
-          <div v-if="isRunning" class="message message--assistant">
-            <div class="message-role">Ассистент</div>
-            <div class="message-body">
-              <span class="loading-dots" aria-label="Идет генерация">
-                <span class="dot" />
-                <span class="dot" />
-                <span class="dot" />
-              </span>
-            </div>
-          </div>
-        </div>
-        <div v-else class="steps-card">
-          <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
-          <div v-for="(st, idx) in stepGroups" :key="idx" class="step">
-            <div class="step-type">{{ st.label }}</div>
-            <div class="step-title">
-              <div v-if="st.detail">{{ st.detail }}</div>
-              <div v-else-if="st.detailUrl" class="step-url">
-                <div class="step-url-main">
-                  <img class="step-favicon" :src="faviconUrl(st.detailUrl)" alt="" />
-                  <a :href="st.detailUrl" target="_blank" rel="noreferrer">{{ st.detailDomain || st.detailUrl }}</a>
-                </div>
-                <span class="step-url-raw">{{ st.detailUrl }}</span>
-              </div>
-              <div v-else-if="st.type === 'agent.fetch'">
-                <ul class="step-links">
-                  <li v-for="item in st.items" :key="item.url" class="step-link">
-                    <img class="step-favicon" :src="faviconUrl(item.url)" alt="" />
-                    <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title || item.url }}</a>
-                    <span class="step-domain">{{ getDomain(item.url) }}</span>
-                  </li>
-                </ul>
-              </div>
-              <div v-else>{{ st.title }}</div>
-            </div>
-          </div>
-          <div v-if="isRunning" class="step step--pending">
-            <div class="step-type">В процессе</div>
-            <div class="step-title">
-              <span class="loading-dots" aria-label="Выполняется">
-                <span class="dot" />
-                <span class="dot" />
-                <span class="dot" />
-              </span>
-            </div>
-          </div>
-        </div>
+        <MessageList
+          v-if="messages.length"
+          :messages="messages"
+          :is-running="isRunning"
+        />
+        <StepsList
+          v-else
+          :steps="steps"
+          :is-running="isRunning"
+        />
       </div>
     </div>
 
-    <div v-if="activeTab === 'answer'" class="sources">
-      <div class="sources-title">Просмотр источников: {{ sources.length }}</div>
-      <div v-if="showSourcesNote" class="sources-note">Источники показаны для последнего запуска в этом чате.</div>
-      <div class="sources-card">
-        <div v-if="!sources.length" class="sources-empty">Источники появятся после запуска run (SSE).</div>
-        <ul v-else class="sources-list">
-          <li v-for="s in sourceDetails" :key="s.url" class="source-item">
-            <div class="source-header">
-              <a :href="s.url" target="_blank" rel="noreferrer">{{ s.title || s.url }}</a>
-              <span class="source-domain">{{ getDomain(s.url) }}</span>
-              <span v-if="isPDF(s.url)" class="source-badge">PDF</span>
-            </div>
-            <div v-if="s.snippets.length" class="source-snippets">
-              <div class="source-snippets-title">Цитаты</div>
-              <ul class="snippet-list">
-                <li v-for="snip in s.snippets" :key="`${s.url}-${snip.ref}`" class="snippet-item">
-                  <span class="snippet-ref">[{{ snip.ref }}]</span>
-                  <span class="snippet-text">{{ snip.quote }}</span>
-                </li>
-              </ul>
-            </div>
-          </li>
-        </ul>
-      </div>
-    </div>
+    <SourcesPanel
+      v-if="activeTab === 'answer'"
+      :sources="sources"
+      :snippets="snippets"
+      :show-note="showSourcesNote"
+    />
 
+    <!-- Steps Tab -->
     <div v-if="activeTab === 'steps'" class="steps">
       <div class="steps-title">Шаги</div>
-      <div class="steps-card">
-        <div v-if="!steps.length" class="sources-empty">Пока нет шагов…</div>
-        <div v-for="(st, idx) in stepGroups" :key="idx" class="step">
-          <div class="step-type">{{ st.label }}</div>
-          <div class="step-title">
-            <div v-if="st.detail">{{ st.detail }}</div>
-            <div v-else-if="st.detailUrl" class="step-url">
-              <div class="step-url-main">
-                <img class="step-favicon" :src="faviconUrl(st.detailUrl)" alt="" />
-                <a :href="st.detailUrl" target="_blank" rel="noreferrer">{{ st.detailDomain || st.detailUrl }}</a>
-              </div>
-              <span class="step-url-raw">{{ st.detailUrl }}</span>
-            </div>
-            <div v-else-if="st.type === 'agent.fetch'">
-              <ul class="step-links">
-                <li v-for="item in st.items" :key="item.url" class="step-link">
-                  <img class="step-favicon" :src="faviconUrl(item.url)" alt="" />
-                  <a :href="item.url" target="_blank" rel="noreferrer">{{ item.title || item.url }}</a>
-                  <span class="step-domain">{{ getDomain(item.url) }}</span>
-                </li>
-              </ul>
-            </div>
-            <div v-else>{{ st.title }}</div>
-          </div>
-        </div>
-        <div v-if="isRunning" class="step step--pending">
-          <div class="step-type">В процессе</div>
-          <div class="step-title">
-            <span class="loading-dots" aria-label="Выполняется">
-              <span class="dot" />
-              <span class="dot" />
-              <span class="dot" />
-            </span>
-          </div>
-        </div>
-      </div>
+      <StepsList :steps="steps" :is-running="isRunning" />
     </div>
 
-    <div v-if="activeTab === 'links'" class="links">
-      <div class="sources-title">Ссылки: {{ sources.length }}</div>
-      <div class="sources-card">
-        <div v-if="!sources.length" class="sources-empty">Список ссылок появится после поиска.</div>
-        <ul v-else class="links-list">
-          <li v-for="(s, idx) in sources" :key="s.url" class="link-item">
-            <img class="link-favicon" :src="faviconUrl(s.url)" alt="" />
-            <div class="link-meta">
-              <a :href="s.url" target="_blank" rel="noreferrer">{{ s.title || `Источник ${idx + 1}` }}</a>
-              <div class="link-domain">
-                {{ getDomain(s.url) }}
-                <span v-if="isPDF(s.url)" class="link-badge">PDF</span>
-              </div>
-            </div>
-          </li>
-        </ul>
-      </div>
-    </div>
+    <!-- Links Tab -->
+    <LinksPanel v-if="activeTab === 'links'" :sources="sources" />
 
+    <!-- Images Tab -->
     <div v-if="activeTab === 'images'" class="links">
       <div class="sources-title">Изображения</div>
       <div class="sources-card">
@@ -205,41 +55,20 @@
       </div>
     </div>
 
-    <div class="composer">
-      <textarea
-        ref="composerTextarea"
-        v-model="followup"
-        class="composer-input"
-        placeholder="Добавить детали или пояснения…"
-        rows="1"
-        @keydown.enter.exact.prevent="submitFollowup"
-        @input="autoResizeComposer"
-      />
-      <div class="model-picker">
-        <button class="model-trigger" :disabled="isLoadingModels" @click="toggleModelMenu" aria-label="Выбрать модель">
-          <Cpu class="icon icon--small" />
-        </button>
-        <div v-if="showModelMenu" class="model-menu">
-          <button
-            v-for="m in models"
-            :key="m"
-            class="model-option"
-            :class="{ 'model-option--active': m === selectedModel }"
-            @click="selectModel(m)"
-          >
-            {{ m }}
-          </button>
-        </div>
-      </div>
-      <button class="composer-send" :disabled="!followup.trim()" @click="submitFollowup">
-        <ArrowRight class="composer-icon" />
-      </button>
-    </div>
+    <ChatComposer
+      v-model="followup"
+      placeholder="Добавить детали или пояснения..."
+      :can-submit="!!followup.trim()"
+      :models="models"
+      :selected-model="selectedModel"
+      :is-loading-models="isLoadingModels"
+      @submit="submitFollowup"
+      @select-model="setModel"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, Bookmark, Copy, Cpu, Image, Link, ListChecks, MessageSquare, Trash2 } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
@@ -247,18 +76,20 @@ import { storeToRefs } from 'pinia'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
+import ChatComposer from '../components/chat/ChatComposer.vue'
+import ChatHeader, { type TabValue } from '../components/chat/ChatHeader.vue'
+import LinksPanel from '../components/chat/LinksPanel.vue'
+import MessageList from '../components/chat/MessageList.vue'
+import SourcesPanel from '../components/chat/SourcesPanel.vue'
+import StepsList, { type Step } from '../components/chat/StepsList.vue'
 import { useModelStore } from '../stores/modelStore'
 
-type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
 type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string; model?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
 type ChatMeta = { last_run_id?: string; bookmarked?: boolean }
-type RunStep = { type: string; title: string; payload: any; created_at?: string }
-type RunSource = { url: string; title?: string }
-type RunSnippet = { url: string; quote: string; ref: number }
 
 const route = useRoute()
 const router = useRouter()
@@ -270,7 +101,7 @@ const isRunning = ref(false)
 const runError = ref('')
 const answerText = ref('')
 const answerModel = ref('')
-const activeTab = ref<'answer' | 'steps' | 'links' | 'images'>('answer')
+const activeTab = ref<TabValue>('answer')
 const sourceTitles = ref<Record<string, string>>({})
 const followup = ref('')
 const eventSource = ref<EventSource | null>(null)
@@ -278,8 +109,6 @@ const currentChatId = ref('')
 const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
 const answerRef = ref<HTMLElement | null>(null)
-const showModelMenu = ref(false)
-const composerTextarea = ref<HTMLTextAreaElement | null>(null)
 const isBookmarked = ref(false)
 const modelStore = useModelStore()
 const { models, selectedModel, isLoadingModels } = storeToRefs(modelStore)
@@ -290,7 +119,7 @@ const md = new MarkdownIt({
   linkify: true
 }).use(mk)
 
-md.renderer.rules.fence = (tokens, idx, options, env, self) => {
+md.renderer.rules.fence = (tokens, idx) => {
   const token = tokens[idx]
   const content = token.content || ''
   const lang = (token.info || '').trim().split(/\s+/)[0]
@@ -314,9 +143,9 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
 
 const statusText = computed(() => {
   if (runError.value) return 'Ошибка'
-  if (isRunning.value) return 'Активен…'
+  if (isRunning.value) return 'Активен...'
   if (runId.value) return 'Завершено'
-  return 'Ожидание…'
+  return 'Ожидание...'
 })
 
 const lastAssistantId = computed(() => {
@@ -335,14 +164,6 @@ const citationSources = computed<Source[]>(() => {
   }))
 })
 
-const sourceDetails = computed(() =>
-  sources.value.map((source) => ({
-    ...source,
-    title: source.title || sourceTitles.value[source.url],
-    snippets: snippets.value.filter((snip) => snip.url === source.url)
-  }))
-)
-
 const messages = computed(() => {
   return history.value.map((msg) => {
     const roleLabel = msg.role === 'assistant' ? 'Ассистент' : 'Вы'
@@ -355,32 +176,6 @@ const messages = computed(() => {
 })
 
 const showSourcesNote = computed(() => history.value.filter((msg) => msg.role === 'assistant').length > 1)
-
-const stepGroups = computed(() => {
-  return steps.value.map((st) => {
-    if (st.type === 'agent.fetch') {
-      const items = Array.isArray(st.payload?.items) ? st.payload.items : []
-      return { ...st, label: 'Чтение источников', items }
-    }
-    if (st.type === 'agent.message') {
-      return { ...st, label: 'Сообщение агента', detail: st.payload?.content || '' }
-    }
-    if (st.type === 'agent.reasoning') {
-      return { ...st, label: 'Рассуждение агента', detail: st.payload?.content || '' }
-    }
-    if (st.type === 'search.query') {
-      return { ...st, label: 'Поиск', detail: st.payload?.query || '' }
-    }
-    if (st.type === 'page.fetch.started') {
-      const url = st.payload?.url || ''
-      return { ...st, label: 'Запрос страницы', detailUrl: url, detailDomain: url ? getDomain(url) : '' }
-    }
-    if (st.type === 'run.finished') {
-      return { ...st, label: 'Pipeline завершен' }
-    }
-    return { ...st, label: st.title || st.type }
-  })
-})
 
 async function startRun(queryText: string, model: string, chatId?: string) {
   if (!queryText) return
@@ -487,6 +282,31 @@ async function startRun(queryText: string, model: string, chatId?: string) {
   }
 }
 
+function decodeHtmlEntities(input: string) {
+  return input
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&')
+}
+
+function copyText(text: string) {
+  const clean = decodeHtmlEntities(text)
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(clean)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = clean
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
 const codeCopyHandler = (ev: Event) => {
   const target = ev.target as HTMLElement | null
   if (!target) return
@@ -561,13 +381,13 @@ async function loadRunData(chatId: string) {
   ])
 
   if (stepsResp.ok) {
-    const data = (await stepsResp.json()) as { items?: RunStep[] }
+    const data = (await stepsResp.json()) as { items?: Step[] }
     if (Array.isArray(data.items)) {
-      steps.value = data.items as Step[]
+      steps.value = data.items
     }
   }
   if (sourcesResp.ok) {
-    const data = (await sourcesResp.json()) as { items?: RunSource[] }
+    const data = (await sourcesResp.json()) as { items?: Source[] }
     if (Array.isArray(data.items)) {
       sources.value = data.items
       sourceTitles.value = data.items.reduce<Record<string, string>>((acc, item) => {
@@ -577,7 +397,7 @@ async function loadRunData(chatId: string) {
     }
   }
   if (snippetsResp.ok) {
-    const data = (await snippetsResp.json()) as { items?: RunSnippet[] }
+    const data = (await snippetsResp.json()) as { items?: Snippet[] }
     if (Array.isArray(data.items)) {
       snippets.value = [...data.items].sort((a, b) => a.ref - b.ref)
     }
@@ -588,33 +408,9 @@ async function submitFollowup() {
   const text = followup.value.trim()
   if (!text || isRunning.value) return
   followup.value = ''
-  resetComposerHeight()
   const model = String(route.query.model || selectedModel.value || '').trim()
   const chatId = currentChatId.value || String(route.params.chatId || '').trim()
   await startRun(text, model, chatId || undefined)
-}
-
-function toggleModelMenu() {
-  if (isLoadingModels.value) return
-  showModelMenu.value = !showModelMenu.value
-}
-
-function selectModel(model: string) {
-  setModel(model)
-  showModelMenu.value = false
-}
-
-function autoResizeComposer() {
-  const el = composerTextarea.value
-  if (!el) return
-  el.style.height = 'auto'
-  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
-}
-
-function resetComposerHeight() {
-  const el = composerTextarea.value
-  if (!el) return
-  el.style.height = 'auto'
 }
 
 async function toggleBookmark() {
@@ -658,23 +454,6 @@ function upsertAssistant(content: string) {
   history.value.push({ id: `assistant-${runId.value}`, role: 'assistant', content })
 }
 
-function getDomain(url: string) {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
-}
-
-function faviconUrl(url: string) {
-  const domain = getDomain(url)
-  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=64`
-}
-
-function isPDF(url: string) {
-  return /\.pdf($|[?#])/i.test(url)
-}
-
 function renderCitations(input: string, sourceList: Source[]) {
   const re = /\[(\d+)\]/g
   let out = ''
@@ -709,31 +488,6 @@ md.renderer.rules.text = (tokens, idx, options, env, self) => {
 function renderMarkdown(input: string, sourceList: Source[]) {
   return md.render(input, { sources: sourceList })
 }
-
-function decodeHtmlEntities(input: string) {
-  return input
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-}
-
-function copyText(text: string) {
-  const clean = decodeHtmlEntities(text)
-  if (navigator.clipboard?.writeText) {
-    void navigator.clipboard.writeText(clean)
-    return
-  }
-  const textarea = document.createElement('textarea')
-  textarea.value = clean
-  textarea.style.position = 'fixed'
-  textarea.style.left = '-9999px'
-  document.body.appendChild(textarea)
-  textarea.select()
-  document.execCommand('copy')
-  document.body.removeChild(textarea)
-}
 </script>
 
 <style scoped>
@@ -741,110 +495,30 @@ function copyText(text: string) {
   max-width: 980px;
   margin: 0 auto;
 }
-.chat-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 10px;
-  gap: 16px;
-}
-.tabs {
-  display: flex;
-  gap: 18px;
-}
-.bookmark-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--card-bg);
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.bookmark-btn:hover {
-  background: var(--hover);
-  color: var(--fg);
-}
-.bookmark-btn--active {
-  background: var(--accent-light);
-  border-color: var(--accent);
-  color: var(--accent);
-}
-.bookmark-btn--active:hover {
-  background: var(--accent-light);
-}
-.bookmark-icon {
-  width: 14px;
-  height: 14px;
-}
-.chat-actions {
-  display: flex;
-  gap: 8px;
-}
-.delete-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--card-bg);
-  font-size: 12px;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-.delete-btn:hover {
-  background: var(--danger-light);
-  border-color: var(--danger);
-  color: var(--danger);
-}
-.delete-icon {
-  width: 14px;
-  height: 14px;
-}
-.tab {
-  border: 0;
-  background: transparent;
-  padding: 10px 6px;
-  cursor: pointer;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.tab--active {
-  color: var(--fg);
-  border-bottom: 2px solid var(--fg);
-}
-.tab-icon {
-  width: 14px;
-  height: 14px;
-}
+
 .progress {
   margin-top: 18px;
   display: flex;
   align-items: center;
   gap: 10px;
 }
+
 .error-text {
   margin-top: 6px;
   font-size: 12px;
   color: var(--danger);
 }
+
 .answer {
   margin-top: 16px;
 }
+
 .answer-title {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 8px;
 }
+
 .answer-card {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -852,544 +526,48 @@ function copyText(text: string) {
   background: var(--card-bg);
   overflow: hidden;
 }
-.message-list {
-  display: grid;
-  gap: 16px;
-}
-.message {
-  display: grid;
-  gap: 6px;
-}
-.message-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.copy-btn {
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg);
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.copy-btn:hover {
-  background: var(--hover);
-}
-.copy-icon {
-  width: 14px;
-  height: 14px;
-}
-.message-role {
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.model-badge {
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-.message-body {
-  font-size: 14px;
-  color: var(--fg);
-  line-height: 1.6;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-}
-.message--user .message-body {
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.message--assistant .message-body :global(p),
-.message--assistant .message-body :global(h1),
-.message--assistant .message-body :global(h2),
-.message--assistant .message-body :global(h3),
-.message--assistant .message-body :global(h4),
-.message--assistant .message-body :global(h5),
-.message--assistant .message-body :global(h6),
-.message--assistant .message-body :global(ul),
-.message--assistant .message-body :global(blockquote),
-.message--assistant .message-body :global(pre) {
-  margin: 0 0 12px 0;
-}
-.message--assistant .message-body :global(ul) {
-  margin-left: 20px;
-}
-.message--assistant .message-body :global(blockquote) {
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--muted);
-}
-.message--assistant .message-body :global(pre) {
-  background: var(--hover);
-  border-radius: 10px;
-  padding: 12px;
-  overflow-x: auto;
-}
-.message--assistant .message-body :global(.code-block) {
-  position: relative;
-  margin: 0 0 12px 0;
-}
-.message--assistant .message-body :global(.code-copy) {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg);
-  font-size: 10px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.message--assistant .message-body :global(.code-copy:hover) {
-  background: var(--hover);
-}
-.message--assistant .message-body :global(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0 0 12px 0;
-  font-size: 13px;
-}
-.message--assistant .message-body :global(th),
-.message--assistant .message-body :global(td) {
-  border: 1px solid var(--border);
-  padding: 8px 10px;
-  text-align: left;
-  vertical-align: top;
-}
-.message--assistant .message-body :global(th) {
-  background: var(--hover);
-  font-weight: 600;
-}
-.message--assistant .message-body :global(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-}
-.message--assistant .message-body :global(.citation) {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.message--assistant .message-body :global(.citation:hover) {
-  text-decoration: underline;
-}
-.message--assistant {
-  border-left: 3px solid var(--accent);
-  padding-left: 12px;
-}
-.message--user {
-  border-left: 3px solid var(--border);
-  padding-left: 12px;
-}
-.answer-content :global(p) {
-  margin: 0 0 12px 0;
-  line-height: 1.6;
-}
-.answer-content :global(h1),
-.answer-content :global(h2),
-.answer-content :global(h3),
-.answer-content :global(h4),
-.answer-content :global(h5),
-.answer-content :global(h6) {
-  margin: 0 0 12px 0;
-  font-weight: 600;
-}
-.answer-content :global(blockquote) {
-  margin: 0 0 12px 0;
-  padding-left: 12px;
-  border-left: 3px solid var(--border);
-  color: var(--muted);
-}
-.answer-content :global(ul) {
-  margin: 0 0 12px 20px;
-  padding: 0;
-}
-.answer-content :global(pre) {
-  background: var(--hover);
-  border-radius: 10px;
-  padding: 12px;
-  overflow-x: auto;
-  margin: 0 0 12px 0;
-}
-.answer-content :global(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-}
-.answer-content :global(.citation) {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.answer-content :global(.citation:hover) {
-  text-decoration: underline;
-}
+
 .dot {
   width: 8px;
   height: 8px;
   border-radius: 999px;
   background: var(--accent);
 }
-.loading-dots {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-}
-.loading-dots .dot {
-  animation: loading-pulse 1.1s infinite ease-in-out;
-}
-.loading-dots .dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-.loading-dots .dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-@keyframes loading-pulse {
-  0%,
-  80%,
-  100% {
-    opacity: 0.3;
-    transform: scale(0.9);
-  }
-  40% {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
+
 .text {
   color: var(--muted);
   font-size: 14px;
 }
-.sources {
-  margin-top: 14px;
+
+.steps {
+  margin-top: 16px;
 }
+
+.steps-title {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.links {
+  margin-top: 16px;
+}
+
 .sources-title {
   font-size: 12px;
   color: var(--muted);
   margin-bottom: 8px;
 }
-.sources-note {
-  font-size: 12px;
-  color: #6b7280;
-  margin-bottom: 8px;
-}
+
 .sources-card {
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px;
   background: var(--card-bg);
 }
+
 .sources-empty {
   color: var(--muted);
   font-size: 13px;
-}
-.sources-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 8px;
-}
-.source-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.source-domain {
-  font-size: 12px;
-  color: var(--muted);
-}
-.source-badge {
-  border: 1px solid #c7d2fe;
-  color: #4338ca;
-  background: #eef2ff;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
-}
-.source-snippets {
-  margin-top: 8px;
-  border-top: 1px dashed var(--border);
-  padding-top: 8px;
-}
-.source-snippets-title {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 6px;
-}
-.snippet-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 6px;
-}
-.snippet-item {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--fg);
-}
-.snippet-ref {
-  font-weight: 600;
-  color: var(--accent);
-}
-.links-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 12px;
-}
-.link-item {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 10px;
-  align-items: center;
-}
-.link-favicon {
-  width: 20px;
-  height: 20px;
-  border-radius: 6px;
-  background: var(--hover);
-}
-.link-meta a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.link-meta a:hover {
-  text-decoration: underline;
-}
-.link-domain {
-  font-size: 12px;
-  color: var(--muted);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.link-badge {
-  border: 1px solid #c7d2fe;
-  color: #4338ca;
-  background: #eef2ff;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  letter-spacing: 0.02em;
-}
-.source-item a {
-  color: var(--accent);
-  text-decoration: none;
-}
-.source-item a:hover {
-  text-decoration: underline;
-}
-.steps {
-  margin-top: 16px;
-}
-.steps-title {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 8px;
-}
-.steps-card {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  background: var(--card-bg);
-  display: grid;
-  gap: 10px;
-}
-.step {
-  display: grid;
-  grid-template-columns: 180px 1fr;
-  gap: 12px;
-  align-items: baseline;
-}
-.step-type {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-  font-size: 12px;
-  color: var(--muted);
-}
-.step-title {
-  font-size: 13px;
-  color: var(--fg);
-}
-.step-links {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: grid;
-  gap: 6px;
-}
-.step-link {
-  display: grid;
-  grid-template-columns: 16px auto 1fr;
-  gap: 8px;
-  align-items: center;
-  font-size: 12px;
-}
-.step-favicon {
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  background: var(--hover);
-}
-.step-link a {
-  color: var(--accent);
-  text-decoration: none;
-  font-weight: 600;
-}
-.step-link a:hover {
-  text-decoration: underline;
-}
-.step-title a {
-  color: var(--accent);
-  text-decoration: none;
-  word-break: break-all;
-}
-.step-title a:hover {
-  text-decoration: underline;
-}
-.step-url {
-  display: grid;
-  gap: 4px;
-}
-.step-url-main {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.step-url-raw {
-  font-size: 11px;
-  color: var(--muted);
-  word-break: break-all;
-}
-.step-domain {
-  color: var(--muted);
-  font-size: 11px;
-}
-.composer {
-  position: sticky;
-  bottom: 18px;
-  margin-top: 26px;
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 10px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 12px;
-}
-.composer-input {
-  border: 0;
-  outline: none;
-  font-size: 14px;
-  resize: none;
-  min-height: 44px;
-  max-height: 200px;
-  overflow-y: auto;
-  line-height: 1.5;
-  padding: 10px 0;
-  font-family: inherit;
-  background: transparent;
-  color: var(--fg);
-}
-.composer-input::placeholder {
-  color: var(--muted);
-}
-.composer-send {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  border: 0;
-  background: var(--accent);
-  color: #fff;
-  cursor: pointer;
-  display: grid;
-  place-items: center;
-}
-.composer-send:hover:not(:disabled) {
-  background: var(--accent-hover);
-}
-.composer-send:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.composer-icon {
-  width: 18px;
-  height: 18px;
-}
-.composer .model-picker {
-  position: relative;
-}
-.composer .model-trigger {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  color: var(--fg);
-}
-.composer .model-trigger:hover:not(:disabled) {
-  background: var(--hover);
-}
-.composer .model-trigger:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-.composer .model-menu {
-  position: absolute;
-  right: 0;
-  bottom: 52px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px;
-  display: grid;
-  gap: 6px;
-  min-width: 220px;
-  z-index: 20;
-  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.15);
-}
-.composer .model-option {
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 8px 10px;
-  border-radius: 10px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--fg);
-}
-.composer .model-option:hover {
-  background: var(--hover);
-}
-.composer .model-option--active {
-  background: var(--accent-light);
-  color: var(--accent);
 }
 </style>
