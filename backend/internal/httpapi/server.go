@@ -45,6 +45,7 @@ func (s *Server) Router() http.Handler {
 	r.Get("/runs/{runID}/snippets", s.handleListRunSnippets)
 	r.Get("/chats", s.handleListChats)
 	r.Get("/chats/{chatID}", s.handleGetChat)
+	r.Delete("/chats/{chatID}", s.handleDeleteChat)
 	r.Get("/chats/{chatID}/messages", s.handleListMessages)
 	r.Get("/bookmarks", s.handleListBookmarks)
 	r.Post("/bookmarks/{chatID}", s.handleCreateBookmark)

@@ -1,22 +1,43 @@
 <template>
   <div class="chat">
-    <div class="tabs">
-      <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">
-        <MessageSquare class="tab-icon" />
-        Ответ
-      </button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">
-        <ListChecks class="tab-icon" />
-        Шаги
-      </button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">
-        <Link class="tab-icon" />
-        Ссылки
-      </button>
-      <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">
-        <Image class="tab-icon" />
-        Изображения
-      </button>
+    <div class="chat-header">
+      <div class="tabs">
+        <button class="tab" :class="{ 'tab--active': activeTab === 'answer' }" @click="activeTab = 'answer'">
+          <MessageSquare class="tab-icon" />
+          Ответ
+        </button>
+        <button class="tab" :class="{ 'tab--active': activeTab === 'steps' }" @click="activeTab = 'steps'">
+          <ListChecks class="tab-icon" />
+          Шаги
+        </button>
+        <button class="tab" :class="{ 'tab--active': activeTab === 'links' }" @click="activeTab = 'links'">
+          <Link class="tab-icon" />
+          Ссылки
+        </button>
+        <button class="tab" :class="{ 'tab--active': activeTab === 'images' }" @click="activeTab = 'images'">
+          <Image class="tab-icon" />
+          Изображения
+        </button>
+      </div>
+      <div v-if="currentChatId" class="chat-actions">
+        <button
+          class="bookmark-btn"
+          :class="{ 'bookmark-btn--active': isBookmarked }"
+          :title="isBookmarked ? 'Убрать из избранного' : 'Добавить в избранное'"
+          @click="toggleBookmark"
+        >
+          <Bookmark class="bookmark-icon" />
+          {{ isBookmarked ? 'В избранном' : 'В избранное' }}
+        </button>
+        <button
+          class="delete-btn"
+          title="Удалить диалог"
+          @click="deleteCurrentChat"
+        >
+          <Trash2 class="delete-icon" />
+          Удалить
+        </button>
+      </div>
     </div>
 
     <div class="progress">
@@ -218,7 +239,7 @@
 </template>
 
 <script setup lang="ts">
-import { ArrowRight, Copy, Cpu, Image, Link, ListChecks, MessageSquare } from 'lucide-vue-next'
+import { ArrowRight, Bookmark, Copy, Cpu, Image, Link, ListChecks, MessageSquare, Trash2 } from 'lucide-vue-next'
 import hljs from 'highlight.js'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
@@ -233,7 +254,7 @@ type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string; model?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
-type ChatMeta = { last_run_id?: string }
+type ChatMeta = { last_run_id?: string; bookmarked?: boolean }
 type RunStep = { type: string; title: string; payload: any; created_at?: string }
 type RunSource = { url: string; title?: string }
 type RunSnippet = { url: string; quote: string; ref: number }
@@ -258,6 +279,7 @@ const history = ref<ChatMessage[]>([])
 const answerRef = ref<HTMLElement | null>(null)
 const showModelMenu = ref(false)
 const composerTextarea = ref<HTMLTextAreaElement | null>(null)
+const isBookmarked = ref(false)
 const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
 
 const md = new MarkdownIt({
@@ -524,6 +546,7 @@ async function loadRunData(chatId: string) {
   const metaResp = await apiFetch(`/chats/${chatId}`)
   if (!metaResp.ok) return
   const meta = (await metaResp.json()) as ChatMeta
+  isBookmarked.value = meta.bookmarked || false
   const lastRunId = meta.last_run_id
   if (!lastRunId) return
   runId.value = lastRunId
@@ -589,6 +612,24 @@ function resetComposerHeight() {
   const el = composerTextarea.value
   if (!el) return
   el.style.height = 'auto'
+}
+
+async function toggleBookmark() {
+  const chatId = currentChatId.value || String(route.params.chatId || '').trim()
+  if (!chatId) return
+  const url = `/bookmarks/${chatId}`
+  const resp = await apiFetch(url, { method: isBookmarked.value ? 'DELETE' : 'POST' })
+  if (!resp.ok) return
+  isBookmarked.value = !isBookmarked.value
+}
+
+async function deleteCurrentChat() {
+  const chatId = currentChatId.value || String(route.params.chatId || '').trim()
+  if (!chatId) return
+  if (!confirm('Удалить этот диалог?')) return
+  const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  await router.push({ name: 'home' })
 }
 
 async function loadHistory(chatId: string) {
@@ -697,11 +738,72 @@ function copyText(text: string) {
   max-width: 980px;
   margin: 0 auto;
 }
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+  gap: 16px;
+}
 .tabs {
   display: flex;
   gap: 18px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 10px;
+}
+.bookmark-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bookmark-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.bookmark-btn--active {
+  background: rgba(15, 118, 110, 0.1);
+  border-color: #0f766e;
+  color: #0f766e;
+}
+.bookmark-btn--active:hover {
+  background: rgba(15, 118, 110, 0.15);
+}
+.bookmark-icon {
+  width: 14px;
+  height: 14px;
+}
+.chat-actions {
+  display: flex;
+  gap: 8px;
+}
+.delete-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.delete-btn:hover {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: #dc2626;
+  color: #dc2626;
+}
+.delete-icon {
+  width: 14px;
+  height: 14px;
 }
 .tab {
   border: 0;

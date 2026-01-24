@@ -7,6 +7,9 @@
       <button class="icon-btn" @click="showLibrary = true" title="Библиотека">
         <Library class="icon" />
       </button>
+      <button class="icon-btn" @click="showBookmarksModal = true" title="Закладки">
+        <Bookmark class="icon" />
+      </button>
     </div>
     <aside class="sidebar">
       <div class="brand">
@@ -14,10 +17,6 @@
           <Library class="icon icon--brand" />
           Библиотека
         </span>
-        <button class="home-link" @click="goHome">
-          <Home class="icon icon--small" />
-          На главную
-        </button>
       </div>
       <nav class="nav">
         <div class="nav-section">
@@ -30,6 +29,24 @@
             <span class="nav-title">{{ item.title || 'Без названия' }}</span>
             <span class="nav-meta">{{ formatDate(item.bookmarked_at || item.updated_at) }}</span>
           </button>
+          <div class="nav-actions">
+            <button
+              class="nav-action nav-action--active"
+              title="Убрать из закладок"
+              aria-label="Убрать из закладок"
+              @click="removeBookmark(item.id)"
+            >
+              <Bookmark class="icon icon--tiny" />
+            </button>
+            <button
+              class="nav-action nav-action--danger"
+              title="Удалить диалог"
+              aria-label="Удалить диалог"
+              @click="deleteChat(item.id)"
+            >
+              <Trash2 class="icon icon--tiny" />
+            </button>
+          </div>
         </div>
 
         <div class="nav-section">
@@ -42,15 +59,25 @@
             <span class="nav-title">{{ item.title || 'Без названия' }}</span>
             <span class="nav-meta">{{ formatDate(item.updated_at) }}</span>
           </button>
-          <button
-            class="nav-action"
-            :class="{ 'nav-action--active': item.bookmarked }"
-            :title="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
-            :aria-label="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
-            @click="toggleBookmark(item)"
-          >
-            <Bookmark class="icon icon--tiny" />
-          </button>
+          <div class="nav-actions">
+            <button
+              class="nav-action"
+              :class="{ 'nav-action--active': item.bookmarked }"
+              :title="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+              :aria-label="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+              @click="toggleBookmark(item)"
+            >
+              <Bookmark class="icon icon--tiny" />
+            </button>
+            <button
+              class="nav-action nav-action--danger"
+              title="Удалить диалог"
+              aria-label="Удалить диалог"
+              @click="deleteChat(item.id)"
+            >
+              <Trash2 class="icon icon--tiny" />
+            </button>
+          </div>
         </div>
       </nav>
     </aside>
@@ -97,16 +124,39 @@
         <div class="library-list">
           <div v-if="libraryLoading" class="library-loading">Загрузка...</div>
           <div v-else-if="!libraryChats.length" class="library-empty">Нет диалогов</div>
-          <button
+          <div
             v-for="chat in libraryChats"
             :key="chat.id"
-            class="library-item"
-            :class="{ 'library-item--active': isActiveChat(chat.id) }"
-            @click="openChatFromLibrary(chat.id)"
+            class="library-row"
           >
-            <span class="library-item-title">{{ chat.title || 'Без названия' }}</span>
-            <span class="library-item-date">{{ formatDate(chat.updated_at) }}</span>
-          </button>
+            <button
+              class="library-item"
+              :class="{ 'library-item--active': isActiveChat(chat.id) }"
+              @click="openChatFromLibrary(chat.id)"
+            >
+              <span class="library-item-title">{{ chat.title || 'Без названия' }}</span>
+              <span class="library-item-date">{{ formatDate(chat.updated_at) }}</span>
+            </button>
+            <div class="library-actions">
+              <button
+                class="library-action"
+                :class="{ 'library-action--active': chat.bookmarked }"
+                :title="chat.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+                :aria-label="chat.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+                @click="toggleBookmarkInLibrary(chat)"
+              >
+                <Bookmark class="icon icon--tiny" />
+              </button>
+              <button
+                class="library-action library-action--danger"
+                title="Удалить диалог"
+                aria-label="Удалить диалог"
+                @click="deleteChatFromLibrary(chat.id)"
+              >
+                <Trash2 class="icon icon--tiny" />
+              </button>
+            </div>
+          </div>
         </div>
         <div class="library-pagination">
           <button class="pagination-btn" :disabled="libraryPage === 1" @click="loadLibraryPage(libraryPage - 1)">
@@ -119,11 +169,67 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showBookmarksModal" class="modal-backdrop" @click.self="showBookmarksModal = false">
+      <div class="modal library-modal">
+        <div class="modal-header">
+          <div class="modal-title">Закладки</div>
+          <button class="modal-close-icon" @click="showBookmarksModal = false" aria-label="Закрыть">
+            <X class="icon icon--small" />
+          </button>
+        </div>
+        <div class="library-list">
+          <div v-if="bookmarksModalLoading" class="library-loading">Загрузка...</div>
+          <div v-else-if="!bookmarksModalList.length" class="library-empty">Нет закладок</div>
+          <div
+            v-for="item in bookmarksModalList"
+            :key="item.id"
+            class="library-row"
+          >
+            <button
+              class="library-item"
+              :class="{ 'library-item--active': isActiveChat(item.id) }"
+              @click="openChatFromBookmarksModal(item.id)"
+            >
+              <span class="library-item-title">{{ item.title || 'Без названия' }}</span>
+              <span class="library-item-date">{{ formatDate(item.bookmarked_at) }}</span>
+            </button>
+            <div class="library-actions">
+              <button
+                class="library-action library-action--active"
+                title="Убрать из закладок"
+                aria-label="Убрать из закладок"
+                @click="removeBookmarkFromModal(item.id)"
+              >
+                <Bookmark class="icon icon--tiny" />
+              </button>
+              <button
+                class="library-action library-action--danger"
+                title="Удалить диалог"
+                aria-label="Удалить диалог"
+                @click="deleteChatFromBookmarksModal(item.id)"
+              >
+                <Trash2 class="icon icon--tiny" />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="library-pagination">
+          <button class="pagination-btn" :disabled="bookmarksModalPage === 1" @click="loadBookmarksModalPage(bookmarksModalPage - 1)">
+            <ChevronLeft class="icon icon--small" />
+          </button>
+          <span class="pagination-info">Страница {{ bookmarksModalPage }} из {{ bookmarksModalTotalPages }}</span>
+          <button class="pagination-btn" :disabled="bookmarksModalPage >= bookmarksModalTotalPages" @click="loadBookmarksModalPage(bookmarksModalPage + 1)">
+            <ChevronRight class="icon icon--small" />
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Bookmark, ChevronLeft, ChevronRight, Home, Library, MessageSquare, Plus, Settings, X } from 'lucide-vue-next'
+import { Bookmark, ChevronLeft, ChevronRight, Library, MessageSquare, Plus, Settings, Trash2, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from './api'
@@ -159,6 +265,12 @@ const libraryPage = ref(1)
 const libraryTotalPages = ref(1)
 const libraryLoading = ref(false)
 const libraryLimit = 20
+const showBookmarksModal = ref(false)
+const bookmarksModalList = ref<BookmarkItem[]>([])
+const bookmarksModalPage = ref(1)
+const bookmarksModalTotalPages = ref(1)
+const bookmarksModalLoading = ref(false)
+const bookmarksModalLimit = 20
 const { models, selectedModel, loadModels, setModel } = useModelStore()
 
 const activeChatId = computed(() => String(route.params.chatId || '').trim())
@@ -207,6 +319,23 @@ async function toggleBookmark(item: ChatItem) {
   await loadSidebar()
 }
 
+async function removeBookmark(chatId: string) {
+  const resp = await apiFetch(`/bookmarks/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  await loadSidebar()
+}
+
+async function deleteChat(chatId: string) {
+  if (!confirm('Удалить этот диалог?')) return
+  const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  // Если удаляем текущий чат, переходим на главную
+  if (activeChatId.value === chatId) {
+    await goHome()
+  }
+  await loadSidebar()
+}
+
 function formatDate(input?: string) {
   if (!input) return ''
   const dt = new Date(input)
@@ -239,6 +368,73 @@ async function openChatFromLibrary(id: string) {
   await openChat(id)
 }
 
+async function deleteChatFromLibrary(chatId: string) {
+  if (!confirm('Удалить этот диалог?')) return
+  const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  // Если удаляем текущий чат, переходим на главную
+  if (activeChatId.value === chatId) {
+    showLibrary.value = false
+    await goHome()
+  }
+  // Перезагружаем список библиотеки
+  await loadLibraryPage(libraryPage.value)
+  await loadSidebar()
+}
+
+async function toggleBookmarkInLibrary(chat: ChatItem) {
+  const url = `/bookmarks/${chat.id}`
+  const resp = await apiFetch(url, { method: chat.bookmarked ? 'DELETE' : 'POST' })
+  if (!resp.ok) return
+  // Обновляем состояние локально для мгновенного отклика
+  chat.bookmarked = !chat.bookmarked
+  await loadSidebar()
+}
+
+async function loadBookmarksModalPage(page: number) {
+  if (bookmarksModalLoading.value) return
+  bookmarksModalLoading.value = true
+  try {
+    const offset = (page - 1) * bookmarksModalLimit
+    const resp = await apiFetch(`/bookmarks?limit=${bookmarksModalLimit}&offset=${offset}`)
+    if (resp.ok) {
+      const data = (await resp.json()) as { items?: BookmarkItem[]; total?: number }
+      if (Array.isArray(data.items)) {
+        bookmarksModalList.value = data.items
+      }
+      const total = data.total || data.items?.length || 0
+      bookmarksModalTotalPages.value = Math.max(1, Math.ceil(total / bookmarksModalLimit))
+      bookmarksModalPage.value = page
+    }
+  } finally {
+    bookmarksModalLoading.value = false
+  }
+}
+
+async function openChatFromBookmarksModal(id: string) {
+  showBookmarksModal.value = false
+  await openChat(id)
+}
+
+async function removeBookmarkFromModal(chatId: string) {
+  const resp = await apiFetch(`/bookmarks/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  await loadBookmarksModalPage(bookmarksModalPage.value)
+  await loadSidebar()
+}
+
+async function deleteChatFromBookmarksModal(chatId: string) {
+  if (!confirm('Удалить этот диалог?')) return
+  const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
+  if (!resp.ok) return
+  if (activeChatId.value === chatId) {
+    showBookmarksModal.value = false
+    await goHome()
+  }
+  await loadBookmarksModalPage(bookmarksModalPage.value)
+  await loadSidebar()
+}
+
 onMounted(() => {
   void loadSidebar()
   void loadModels()
@@ -254,6 +450,12 @@ watch(
 watch(showLibrary, (val) => {
   if (val) {
     void loadLibraryPage(1)
+  }
+})
+
+watch(showBookmarksModal, (val) => {
+  if (val) {
+    void loadBookmarksModalPage(1)
   }
 })
 </script>
@@ -311,19 +513,7 @@ watch(showLibrary, (val) => {
   align-items: center;
   gap: 8px;
 }
-.home-link {
-  border: 0;
-  background: transparent;
-  font-size: 11px;
-  color: #0f766e;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-.home-link:hover {
-  text-decoration: underline;
-}
+
 .nav-section {
   margin-top: 18px;
   font-size: 12px;
@@ -336,8 +526,12 @@ watch(showLibrary, (val) => {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   width: 100%;
+}
+.nav-actions {
+  display: flex;
+  gap: 2px;
 }
 .nav-link {
   display: grid;
@@ -389,6 +583,13 @@ watch(showLibrary, (val) => {
 .nav-action--active {
   color: #0f766e;
   background: rgba(15, 118, 110, 0.1);
+}
+.nav-action--danger {
+  color: #6b7280;
+}
+.nav-action--danger:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
 }
 .icon {
   width: 16px;
@@ -540,6 +741,16 @@ watch(showLibrary, (val) => {
   padding: 12px;
   text-align: center;
 }
+.library-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px;
+}
+.library-actions {
+  display: flex;
+  gap: 2px;
+}
 .library-item {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -552,12 +763,34 @@ watch(showLibrary, (val) => {
   text-align: left;
   cursor: pointer;
   color: var(--fg);
+  min-width: 0;
 }
 .library-item:hover {
   background: var(--hover);
 }
 .library-item--active {
   background: rgba(15, 118, 110, 0.1);
+}
+.library-action {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 8px;
+  border-radius: 8px;
+  color: #6b7280;
+}
+.library-action:hover {
+  background: var(--hover);
+}
+.library-action--active {
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
+}
+.library-action--danger:hover {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.1);
 }
 .library-item-title {
   font-size: 13px;
