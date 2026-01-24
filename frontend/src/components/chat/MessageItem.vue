@@ -11,11 +11,21 @@
     </div>
     <div class="message-body" v-if="message.role === 'assistant'" v-html="message.html" />
     <div class="message-body" v-else>{{ message.content }}</div>
+    
+    <!-- Sources button for assistant messages -->
+    <button 
+      v-if="message.role === 'assistant' && message.sourcesCount && message.sourcesCount > 0" 
+      class="sources-btn"
+      @click="$emit('show-sources', message.runId)"
+    >
+      <FileText :size="14" />
+      {{ message.sourcesCount }} источников
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Copy } from 'lucide-vue-next'
+import { Copy, FileText } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 export interface MessageData {
@@ -24,10 +34,16 @@ export interface MessageData {
   content: string
   html?: string
   modelLabel?: string
+  runId?: string
+  sourcesCount?: number
 }
 
 const props = defineProps<{
   message: MessageData
+}>()
+
+defineEmits<{
+  'show-sources': [runId: string]
 }>()
 
 const roleLabel = computed(() => {
@@ -227,5 +243,27 @@ function copyText(text: string) {
 .message--user {
   border-left: 3px solid var(--border);
   padding-left: 12px;
+}
+
+/* Sources button */
+.sources-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--accent);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: fit-content;
+}
+
+.sources-btn:hover {
+  background: var(--hover);
+  border-color: var(--accent);
 }
 </style>

@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	htmltomarkdown "github.com/JohannesKaufmann/html-to-markdown/v2"
+	"github.com/JohannesKaufmann/html-to-markdown/v2/converter"
 	"github.com/jackc/pgx/v5"
 	"github.com/ledongthuc/pdf"
 )
@@ -32,18 +34,12 @@ type searchResult struct {
 }
 
 type sourceRecord struct {
-	ID       string
-	URL      string
-	Title    string
-	Domain   string
-	Favicon  string
-	Snippets []snippetRecord
-}
-
-type snippetRecord struct {
-	URL   string `json:"url"`
-	Quote string `json:"quote"`
-	Ref   int    `json:"ref"`
+	ID              string
+	URL             string
+	Title           string
+	Domain          string
+	Favicon         string
+	MarkdownContent string
 }
 
 type chatMessage struct {
@@ -110,16 +106,15 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	s.publishStep(ctx, runID, "run.started", "Запуск", map[string]any{"model": model, "query": query})
 
 	s.publishStep(ctx, runID, "plan.ready", "План", map[string]any{
-		"items": []string{"Сформировать поисковый запрос", "Найти источники", "Прочитать страницы", "Извлечь цитаты", "Сгенерировать ответ"},
+		"items": []string{"Сформировать поисковый запрос", "Найти источники", "Прочитать страницы", "Сгенерировать ответ"},
 	})
 
 	var (
-		answer   string
-		sources  []sourceRecord
-		snippets []snippetRecord
-		err      error
+		answer  string
+		sources []sourceRecord
+		err     error
 	)
-	answer, sources, snippets, err = s.runAgentPipeline(ctx, runID, query, model)
+	answer, sources, err = s.runAgentPipeline(ctx, runID, query, model)
 	if err != nil {
 		errMsg := "agent error: " + err.Error()
 		s.logger.Error().Err(err).Str("run_id", runID).Msg("agent pipeline failed")
@@ -139,10 +134,10 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 
 	_, _ = s.pool.Exec(ctx, `update runs set status='finished', finished_at=now() where id=$1`, runID)
 	s.publishStep(ctx, runID, "run.finished", "Завершено", map[string]any{"status": "ok"})
-	s.logger.Info().Str("run_id", runID).Int("sources", len(sources)).Int("snippets", len(snippets)).Msg("pipeline finished")
+	s.logger.Info().Str("run_id", runID).Int("sources", len(sources)).Msg("pipeline finished")
 }
 
-func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model string) (string, []sourceRecord, []snippetRecord, error) {
+func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model string) (string, []sourceRecord, error) {
 	history, err := s.loadChatHistory(ctx, runID, s.cfg.ChatHistoryLimit)
 	if err != nil {
 		s.logger.Warn().Err(err).Str("run_id", runID).Msg("load chat history failed")
@@ -241,7 +236,6 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 
 	seenURLs := map[string]struct{}{}
 	collectedSources := make([]sourceRecord, 0, s.cfg.SearchMaxSources)
-	collectedSnippets := make([]snippetRecord, 0, s.cfg.SearchMaxSources*s.cfg.SnippetMaxPerSource)
 	searchCalls := 0
 
 	maxIterations := s.cfg.SearchMaxQueries + 4
@@ -252,7 +246,7 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 	for i := 0; i < maxIterations; i++ {
 		resp, err := s.openRouterToolStep(ctx, model, messages, tools)
 		if err != nil {
-			return "", collectedSources, collectedSnippets, err
+			return "", collectedSources, err
 		}
 
 		if strings.TrimSpace(resp.Reasoning) != "" {
@@ -359,16 +353,13 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 					callErr = err
 					break
 				}
-				snips, err := s.readAndSnippet(ctx, runID, sources)
-				if err != nil {
+				if err := s.readSources(ctx, runID, sources); err != nil {
 					callErr = err
 					break
 				}
 				collectedSources = append(collectedSources, sources...)
-				collectedSnippets = append(collectedSnippets, snips...)
 				result = map[string]any{
-					"sources":  sources,
-					"snippets": snips,
+					"sources": sources,
 				}
 
 			case "final_answer":
@@ -384,7 +375,7 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 					callErr = fmt.Errorf("answer is empty")
 					break
 				}
-				return answer, collectedSources, collectedSnippets, nil
+				return answer, collectedSources, nil
 
 			default:
 				callErr = fmt.Errorf("unknown tool: %s", name)
@@ -406,7 +397,7 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 		}
 	}
 
-	return fallbackAnswer(query, collectedSnippets), collectedSources, collectedSnippets, nil
+	return fallbackAnswerSimple(query), collectedSources, nil
 }
 
 func (s *Server) searchProvider(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
@@ -681,10 +672,8 @@ func (s *Server) persistSources(ctx context.Context, runID string, selected []se
 	return records, nil
 }
 
-func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sourceRecord) ([]snippetRecord, error) {
+func (s *Server) readSources(ctx context.Context, runID string, sources []sourceRecord) error {
 	client := &http.Client{Timeout: s.cfg.FetchTimeout}
-	snippets := make([]snippetRecord, 0, 12)
-	ref := 1
 	cacheTTL := s.cfg.PageCacheTTL
 
 	for i := range sources {
@@ -713,20 +702,8 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 				"length": len(cached.Content),
 			})
 
-			snips := sanitizeSnippets(cached.Snippets)
-			if len(snips) == 0 {
-				snips = extractSnippets(cached.Content, s.cfg.SnippetMaxPerSource)
-				_ = s.upsertPageCache(ctx, source.URL, cached.Title, cached.Content, snips)
-			}
-			for _, snip := range snips {
-				if err := s.storeSnippet(ctx, source.ID, snip); err != nil {
-					return nil, err
-				}
-				record := snippetRecord{URL: source.URL, Quote: snip, Ref: ref}
-				source.Snippets = append(source.Snippets, record)
-				snippets = append(snippets, record)
-				ref++
-			}
+			// Convert cached content to Markdown
+			source.MarkdownContent = s.convertToMarkdown(cached.Content, source.URL)
 			continue
 		}
 
@@ -772,25 +749,12 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 				"length": len(text),
 			})
 
-			snips := extractSnippets(text, s.cfg.SnippetMaxPerSource)
-			snips = sanitizeSnippets(snips)
-			if err := s.upsertPageCache(ctx, source.URL, source.Title, text, snips); err != nil {
+			if err := s.upsertPageCache(ctx, source.URL, source.Title, text); err != nil {
 				s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("cache upsert failed")
 			}
-			if len(snips) == 0 {
-				continue
-			}
 
-			for _, snip := range snips {
-				if err := s.storeSnippet(ctx, source.ID, snip); err != nil {
-					s.logger.Error().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("store snippet failed")
-					return nil, err
-				}
-				record := snippetRecord{URL: source.URL, Quote: snip, Ref: ref}
-				source.Snippets = append(source.Snippets, record)
-				snippets = append(snippets, record)
-				ref++
-			}
+			// PDF text is already plain text, use as-is
+			source.MarkdownContent = text
 			continue
 		}
 
@@ -808,7 +772,7 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 		_ = resp.Body.Close()
 		if err != nil {
 			errMsg := err
-			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page fetch non-200")
+			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page read failed")
 			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": errMsg.Error()})
 			continue
 		}
@@ -829,32 +793,32 @@ func (s *Server) readAndSnippet(ctx context.Context, runID string, sources []sou
 			"length": len(text),
 		})
 
-		snips := extractSnippets(text, s.cfg.SnippetMaxPerSource)
-		snips = sanitizeSnippets(snips)
-		if err := s.upsertPageCache(ctx, source.URL, title, text, snips); err != nil {
+		if err := s.upsertPageCache(ctx, source.URL, title, text); err != nil {
 			s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("cache upsert failed")
 		}
-		if len(snips) == 0 {
-			continue
-		}
 
-		for _, snip := range snips {
-			if err := s.storeSnippet(ctx, source.ID, snip); err != nil {
-				s.logger.Error().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("store snippet failed")
-				return nil, err
-			}
-			record := snippetRecord{URL: source.URL, Quote: snip, Ref: ref}
-			source.Snippets = append(source.Snippets, record)
-			snippets = append(snippets, record)
-			ref++
-		}
+		// Convert HTML to Markdown
+		markdownContent := s.convertToMarkdown(string(body), source.URL)
+		source.MarkdownContent = markdownContent
 	}
 
-	if len(snippets) > 0 {
-		s.publishStep(ctx, runID, "snippets.extracted", "Извлечены цитаты", map[string]any{"snippets": snippets})
-	}
+	return nil
+}
 
-	return snippets, nil
+// convertToMarkdown converts HTML content to Markdown using html-to-markdown library
+func (s *Server) convertToMarkdown(htmlContent string, sourceURL string) string {
+	// Try to convert HTML to Markdown
+	markdown, err := htmltomarkdown.ConvertString(
+		htmlContent,
+		converter.WithDomain(sourceURL),
+	)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("url", sourceURL).Msg("html-to-markdown conversion failed, using plain text")
+		// Fallback to extracted plain text
+		_, text := extractText([]byte(htmlContent))
+		return sanitizeUTF8(text)
+	}
+	return sanitizeUTF8(markdown)
 }
 
 func (s *Server) loadCachedPage(ctx context.Context, pageURL string) (cachedPage, bool, error) {
@@ -877,27 +841,18 @@ func (s *Server) loadCachedPage(ctx context.Context, pageURL string) (cachedPage
 	return page, true, nil
 }
 
-func (s *Server) upsertPageCache(ctx context.Context, pageURL, title, content string, snippets []string) error {
+func (s *Server) upsertPageCache(ctx context.Context, pageURL, title, content string) error {
 	title = sanitizeUTF8(title)
 	content = sanitizeUTF8(content)
-	snippets = sanitizeSnippets(snippets)
-	raw, _ := json.Marshal(snippets)
 	_, err := s.pool.Exec(
 		ctx,
 		`insert into page_cache(url, title, content, snippets, fetched_at)
-		 values ($1,$2,$3,$4,now())
-		 on conflict (url) do update set title=excluded.title, content=excluded.content, snippets=excluded.snippets, fetched_at=excluded.fetched_at`,
+		 values ($1,$2,$3,'[]'::jsonb,now())
+		 on conflict (url) do update set title=excluded.title, content=excluded.content, fetched_at=excluded.fetched_at`,
 		pageURL,
 		title,
 		content,
-		raw,
 	)
-	return err
-}
-
-func (s *Server) storeSnippet(ctx context.Context, sourceID, quote string) error {
-	quote = sanitizeUTF8(quote)
-	_, err := s.pool.Exec(ctx, `insert into page_snippets(source_id, quote) values ($1,$2)`, sourceID, quote)
 	return err
 }
 
@@ -1225,68 +1180,8 @@ func stripTags(input string) string {
 	return tagRe.ReplaceAllString(input, " ")
 }
 
-func extractSnippets(text string, max int) []string {
-	if max <= 0 {
-		return nil
-	}
-	parts := strings.FieldsFunc(text, func(r rune) bool {
-		return r == '.' || r == '!' || r == '?' || r == '\n'
-	})
-	out := make([]string, 0, max)
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		part = truncateRunes(part, 240)
-		out = append(out, part)
-		if len(out) >= max {
-			break
-		}
-	}
-	return out
-}
-
-func buildPrompt(query string, sources []sourceRecord, snippets []snippetRecord) string {
-	var b strings.Builder
-	b.WriteString("Question:\n")
-	b.WriteString(query)
-	b.WriteString("\n\nSources:\n")
-	for i, snip := range snippets {
-		title := ""
-		for _, src := range sources {
-			if src.URL == snip.URL {
-				title = src.Title
-				break
-			}
-		}
-		label := fmt.Sprintf("[%d]", i+1)
-		b.WriteString(label)
-		if title != "" {
-			b.WriteString(" ")
-			b.WriteString(title)
-		}
-		b.WriteString("\n")
-		b.WriteString("- URL: ")
-		b.WriteString(snip.URL)
-		b.WriteString("\n")
-		b.WriteString("- Quote: ")
-		b.WriteString(snip.Quote)
-		b.WriteString("\n\n")
-	}
-	return b.String()
-}
-
-func fallbackAnswer(query string, snippets []snippetRecord) string {
-	if len(snippets) == 0 {
-		return fmt.Sprintf("Пока нет данных для ответа на запрос: %s", query)
-	}
-	var b strings.Builder
-	b.WriteString("Черновик ответа на основе найденных источников:\n\n")
-	for i, snip := range snippets {
-		b.WriteString(fmt.Sprintf("- %s [%d]\n", snip.Quote, i+1))
-	}
-	return b.String()
+func fallbackAnswerSimple(query string) string {
+	return fmt.Sprintf("Не удалось найти достаточно информации для ответа на запрос: %s", query)
 }
 
 func normalizeWhitespace(text string) string {
@@ -1318,22 +1213,6 @@ func sanitizeUTF8(input string) string {
 		return r
 	}, input)
 	return strings.ToValidUTF8(cleaned, " ")
-}
-
-func sanitizeSnippets(snippets []string) []string {
-	if len(snippets) == 0 {
-		return snippets
-	}
-	out := make([]string, 0, len(snippets))
-	for _, snip := range snippets {
-		snip = sanitizeUTF8(snip)
-		snip = strings.TrimSpace(snip)
-		if snip == "" {
-			continue
-		}
-		out = append(out, snip)
-	}
-	return out
 }
 
 func isTextContentType(contentType, rawURL string) bool {

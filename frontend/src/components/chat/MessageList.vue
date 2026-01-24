@@ -4,6 +4,7 @@
       v-for="msg in messages"
       :key="msg.id"
       :message="msg"
+      @show-sources="$emit('show-sources', $event)"
     />
     <div v-if="isRunning" class="message message--assistant">
       <div class="message-role">Ассистент</div>
@@ -21,6 +22,10 @@ import MessageItem, { type MessageData } from './MessageItem.vue'
 defineProps<{
   messages: MessageData[]
   isRunning?: boolean
+}>()
+
+defineEmits<{
+  'show-sources': [runId: string]
 }>()
 </script>
 

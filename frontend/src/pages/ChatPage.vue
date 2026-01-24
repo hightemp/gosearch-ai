@@ -22,6 +22,7 @@
           v-if="messages.length"
           :messages="messages"
           :is-running="isRunning"
+          @show-sources="openSourcesPanel"
         />
         <StepsList
           v-else
@@ -31,21 +32,11 @@
       </div>
     </div>
 
-    <SourcesPanel
-      v-if="activeTab === 'answer'"
-      :sources="sources"
-      :snippets="snippets"
-      :show-note="showSourcesNote"
-    />
-
     <!-- Steps Tab -->
     <div v-if="activeTab === 'steps'" class="steps">
       <div class="steps-title">Шаги</div>
       <StepsList :steps="steps" :is-running="isRunning" />
     </div>
-
-    <!-- Links Tab -->
-    <LinksPanel v-if="activeTab === 'links'" :sources="sources" />
 
     <!-- Images Tab -->
     <div v-if="activeTab === 'images'" class="links">
@@ -65,6 +56,14 @@
       @submit="submitFollowup"
       @select-model="setModel"
     />
+
+    <!-- Sources Sidebar -->
+    <SourcesSidebar
+      :is-open="sourcesPanelOpen"
+      :sources="selectedSources"
+      :query-context="selectedQueryContext"
+      @close="closeSourcesPanel"
+    />
   </div>
 </template>
 
@@ -78,14 +77,11 @@ import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
 import ChatComposer from '../components/chat/ChatComposer.vue'
 import ChatHeader, { type TabValue } from '../components/chat/ChatHeader.vue'
-import LinksPanel from '../components/chat/LinksPanel.vue'
 import MessageList from '../components/chat/MessageList.vue'
-import SourcesPanel from '../components/chat/SourcesPanel.vue'
+import SourcesSidebar, { type Source } from '../components/chat/SourcesSidebar.vue'
 import StepsList, { type Step } from '../components/chat/StepsList.vue'
 import { useModelStore } from '../stores/modelStore'
 
-type Source = { url: string; title?: string }
-type Snippet = { url: string; quote: string; ref: number }
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string; model?: string }
 type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
@@ -94,8 +90,6 @@ type ChatMeta = { last_run_id?: string; bookmarked?: boolean }
 const route = useRoute()
 const router = useRouter()
 const steps = ref<Step[]>([])
-const sources = ref<Source[]>([])
-const snippets = ref<Snippet[]>([])
 const runId = ref<string>('')
 const isRunning = ref(false)
 const runError = ref('')
@@ -113,6 +107,13 @@ const isBookmarked = ref(false)
 const modelStore = useModelStore()
 const { models, selectedModel, isLoadingModels } = storeToRefs(modelStore)
 const { loadModels, setModel } = modelStore
+
+// Sources storage by runId
+const sourcesByRunId = ref<Map<string, Source[]>>(new Map())
+const sourcesPanelOpen = ref(false)
+const selectedRunId = ref('')
+const selectedSources = ref<Source[]>([])
+const selectedQueryContext = ref('')
 
 const md = new MarkdownIt({
   html: false,
@@ -155,13 +156,11 @@ const lastAssistantId = computed(() => {
   return ''
 })
 
+// Get sources for citation links
 const citationSources = computed<Source[]>(() => {
-  if (!snippets.value.length) return []
-  const ordered = [...snippets.value].sort((a, b) => a.ref - b.ref)
-  return ordered.map((snip) => ({
-    url: snip.url,
-    title: sourceTitles.value[snip.url] || ''
-  }))
+  // Get sources for the current/last run
+  if (!runId.value) return []
+  return sourcesByRunId.value.get(runId.value) || []
 })
 
 const messages = computed(() => {
@@ -171,11 +170,43 @@ const messages = computed(() => {
     const citations = isLatestAssistant ? citationSources.value : []
     const html = msg.role === 'assistant' ? renderMarkdown(msg.content, citations) : ''
     const modelLabel = isLatestAssistant ? answerModel.value : ''
-    return { ...msg, roleLabel, html, modelLabel }
+    
+    // Extract runId from message id (format: user-{runId} or assistant-{runId})
+    const msgRunId = msg.id.replace('user-', '').replace('assistant-', '')
+    const sourcesForRun = sourcesByRunId.value.get(msgRunId) || []
+    
+    return { 
+      ...msg, 
+      roleLabel, 
+      html, 
+      modelLabel,
+      runId: msgRunId,
+      sourcesCount: msg.role === 'assistant' ? sourcesForRun.length : 0
+    }
   })
 })
 
-const showSourcesNote = computed(() => history.value.filter((msg) => msg.role === 'assistant').length > 1)
+function openSourcesPanel(msgRunId: string) {
+  selectedRunId.value = msgRunId
+  selectedSources.value = sourcesByRunId.value.get(msgRunId) || []
+  
+  // Find the user query for context
+  const userMsg = history.value.find(m => m.id === `user-${msgRunId}`)
+  selectedQueryContext.value = userMsg 
+    ? `Источники для: "${truncateText(userMsg.content, 50)}"`
+    : 'Источники'
+  
+  sourcesPanelOpen.value = true
+}
+
+function closeSourcesPanel() {
+  sourcesPanelOpen.value = false
+}
+
+function truncateText(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text
+  return text.slice(0, maxLen) + '...'
+}
 
 async function startRun(queryText: string, model: string, chatId?: string) {
   if (!queryText) return
@@ -183,8 +214,6 @@ async function startRun(queryText: string, model: string, chatId?: string) {
   runError.value = ''
   if (!chatId) {
     steps.value = []
-    sources.value = []
-    snippets.value = []
     sourceTitles.value = {}
     history.value = []
   }
@@ -227,24 +256,20 @@ async function startRun(queryText: string, model: string, chatId?: string) {
 
     if (obj.type === 'search.results' && obj.payload?.results) {
       const mapped = (obj.payload.results as any[]).map((r) => ({ url: r.url, title: r.title }))
-      sources.value = mapped
+      // Store sources for this run
+      sourcesByRunId.value.set(runId.value, mapped)
       sourceTitles.value = mapped.reduce<Record<string, string>>((acc, item) => {
         if (item.url && item.title) acc[item.url] = item.title
         return acc
       }, {})
     }
     if ((obj.type === 'source.selected' || obj.type === 'sources.selected') && obj.payload?.urls) {
-      sources.value = (obj.payload.urls as string[]).map((url, i) => ({
+      const urls = obj.payload.urls as string[]
+      const sources = urls.map((url, i) => ({
         url,
         title: sourceTitles.value[url] || `Источник ${i + 1}`
       }))
-    }
-    if ((obj.type === 'snippet.extracted' || obj.type === 'snippets.extracted') && obj.payload?.snippets) {
-      const payloadSnippets = obj.payload.snippets as any[]
-      snippets.value = payloadSnippets
-        .filter((snip) => snip?.url && snip?.quote)
-        .map((snip) => ({ url: snip.url, quote: snip.quote, ref: Number(snip.ref) || 0 }))
-        .sort((a, b) => a.ref - b.ref)
+      sourcesByRunId.value.set(runId.value, sources)
     }
   })
 
@@ -354,8 +379,6 @@ async function hydrateFromRoute() {
   }
   if (chatId) {
     steps.value = []
-    sources.value = []
-    snippets.value = []
     sourceTitles.value = {}
     answerText.value = ''
     currentChatId.value = chatId
@@ -374,10 +397,9 @@ async function loadRunData(chatId: string) {
   if (!lastRunId) return
   runId.value = lastRunId
 
-  const [stepsResp, sourcesResp, snippetsResp] = await Promise.all([
+  const [stepsResp, sourcesResp] = await Promise.all([
     apiFetch(`/runs/${lastRunId}/steps`),
-    apiFetch(`/runs/${lastRunId}/sources`),
-    apiFetch(`/runs/${lastRunId}/snippets`)
+    apiFetch(`/runs/${lastRunId}/sources`)
   ])
 
   if (stepsResp.ok) {
@@ -387,19 +409,20 @@ async function loadRunData(chatId: string) {
     }
   }
   if (sourcesResp.ok) {
-    const data = (await sourcesResp.json()) as { items?: Source[] }
+    const data = (await sourcesResp.json()) as { items?: any[] }
     if (Array.isArray(data.items)) {
-      sources.value = data.items
-      sourceTitles.value = data.items.reduce<Record<string, string>>((acc, item) => {
+      const sources: Source[] = data.items.map((item) => ({
+        url: item.url,
+        title: item.title,
+        domain: item.domain,
+        faviconUrl: item.favicon_url,
+        markdownContent: item.markdown_content
+      }))
+      sourcesByRunId.value.set(lastRunId, sources)
+      sourceTitles.value = sources.reduce<Record<string, string>>((acc, item) => {
         if (item.url && item.title) acc[item.url] = item.title
         return acc
       }, {})
-    }
-  }
-  if (snippetsResp.ok) {
-    const data = (await snippetsResp.json()) as { items?: Snippet[] }
-    if (Array.isArray(data.items)) {
-      snippets.value = [...data.items].sort((a, b) => a.ref - b.ref)
     }
   }
 }

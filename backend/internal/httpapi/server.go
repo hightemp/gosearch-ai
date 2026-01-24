@@ -42,7 +42,6 @@ func (s *Server) Router() http.Handler {
 	r.Get("/runs/{runID}/stream", s.handleRunStream)
 	r.Get("/runs/{runID}/steps", s.handleListRunSteps)
 	r.Get("/runs/{runID}/sources", s.handleListRunSources)
-	r.Get("/runs/{runID}/snippets", s.handleListRunSnippets)
 	r.Get("/chats", s.handleListChats)
 	r.Get("/chats/{chatID}", s.handleGetChat)
 	r.Delete("/chats/{chatID}", s.handleDeleteChat)
