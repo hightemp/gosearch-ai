@@ -185,11 +185,14 @@
     </div>
 
     <div class="composer">
-      <input
+      <textarea
+        ref="composerTextarea"
         v-model="followup"
         class="composer-input"
         placeholder="Добавить детали или пояснения…"
+        rows="1"
         @keydown.enter.exact.prevent="submitFollowup"
+        @input="autoResizeComposer"
       />
       <div class="model-picker">
         <button class="model-trigger" :disabled="isLoadingModels" @click="toggleModelMenu" aria-label="Выбрать модель">
@@ -254,6 +257,7 @@ const lastQuery = ref('')
 const history = ref<ChatMessage[]>([])
 const answerRef = ref<HTMLElement | null>(null)
 const showModelMenu = ref(false)
+const composerTextarea = ref<HTMLTextAreaElement | null>(null)
 const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
 
 const md = new MarkdownIt({
@@ -558,6 +562,7 @@ async function submitFollowup() {
   const text = followup.value.trim()
   if (!text || isRunning.value) return
   followup.value = ''
+  resetComposerHeight()
   const model = String(route.query.model || selectedModel.value || '').trim()
   const chatId = currentChatId.value || String(route.params.chatId || '').trim()
   await startRun(text, model, chatId || undefined)
@@ -571,6 +576,19 @@ function toggleModelMenu() {
 function selectModel(model: string) {
   setModel(model)
   showModelMenu.value = false
+}
+
+function autoResizeComposer() {
+  const el = composerTextarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+}
+
+function resetComposerHeight() {
+  const el = composerTextarea.value
+  if (!el) return
+  el.style.height = 'auto'
 }
 
 async function loadHistory(chatId: string) {
@@ -727,6 +745,7 @@ function copyText(text: string) {
   border-radius: 12px;
   padding: 16px;
   background: #fff;
+  overflow: hidden;
 }
 .message-list {
   display: grid;
@@ -784,9 +803,12 @@ function copyText(text: string) {
   font-size: 14px;
   color: #111827;
   line-height: 1.6;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 .message--user .message-body {
   white-space: pre-wrap;
+  word-break: break-word;
 }
 .message--assistant .message-body :global(p),
 .message--assistant .message-body :global(h1),
@@ -1178,6 +1200,13 @@ function copyText(text: string) {
   border: 0;
   outline: none;
   font-size: 14px;
+  resize: none;
+  min-height: 44px;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
+  padding: 10px 0;
+  font-family: inherit;
 }
 .composer-send {
   width: 44px;

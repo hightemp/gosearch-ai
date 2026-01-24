@@ -1,5 +1,13 @@
 <template>
   <div class="layout">
+    <div class="icon-bar">
+      <button class="icon-btn" @click="goHome" title="Новый запрос">
+        <Plus class="icon" />
+      </button>
+      <button class="icon-btn" @click="showLibrary = true" title="Библиотека">
+        <Library class="icon" />
+      </button>
+    </div>
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-title">
@@ -77,11 +85,45 @@
         </div>
       </div>
     </div>
+
+    <div v-if="showLibrary" class="modal-backdrop" @click.self="showLibrary = false">
+      <div class="modal library-modal">
+        <div class="modal-header">
+          <div class="modal-title">Все диалоги</div>
+          <button class="modal-close-icon" @click="showLibrary = false" aria-label="Закрыть">
+            <X class="icon icon--small" />
+          </button>
+        </div>
+        <div class="library-list">
+          <div v-if="libraryLoading" class="library-loading">Загрузка...</div>
+          <div v-else-if="!libraryChats.length" class="library-empty">Нет диалогов</div>
+          <button
+            v-for="chat in libraryChats"
+            :key="chat.id"
+            class="library-item"
+            :class="{ 'library-item--active': isActiveChat(chat.id) }"
+            @click="openChatFromLibrary(chat.id)"
+          >
+            <span class="library-item-title">{{ chat.title || 'Без названия' }}</span>
+            <span class="library-item-date">{{ formatDate(chat.updated_at) }}</span>
+          </button>
+        </div>
+        <div class="library-pagination">
+          <button class="pagination-btn" :disabled="libraryPage === 1" @click="loadLibraryPage(libraryPage - 1)">
+            <ChevronLeft class="icon icon--small" />
+          </button>
+          <span class="pagination-info">Страница {{ libraryPage }} из {{ libraryTotalPages }}</span>
+          <button class="pagination-btn" :disabled="libraryPage >= libraryTotalPages" @click="loadLibraryPage(libraryPage + 1)">
+            <ChevronRight class="icon icon--small" />
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Bookmark, Home, Library, MessageSquare, Settings } from 'lucide-vue-next'
+import { Bookmark, ChevronLeft, ChevronRight, Home, Library, MessageSquare, Plus, Settings, X } from 'lucide-vue-next'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from './api'
@@ -111,6 +153,12 @@ const recentChats = ref<ChatItem[]>([])
 const bookmarks = ref<BookmarkItem[]>([])
 const isLoading = ref(false)
 const showSettings = ref(false)
+const showLibrary = ref(false)
+const libraryChats = ref<ChatItem[]>([])
+const libraryPage = ref(1)
+const libraryTotalPages = ref(1)
+const libraryLoading = ref(false)
+const libraryLimit = 20
 const { models, selectedModel, loadModels, setModel } = useModelStore()
 
 const activeChatId = computed(() => String(route.params.chatId || '').trim())
@@ -166,6 +214,31 @@ function formatDate(input?: string) {
   return dt.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' })
 }
 
+async function loadLibraryPage(page: number) {
+  if (libraryLoading.value) return
+  libraryLoading.value = true
+  try {
+    const offset = (page - 1) * libraryLimit
+    const resp = await apiFetch(`/chats?limit=${libraryLimit}&offset=${offset}`)
+    if (resp.ok) {
+      const data = (await resp.json()) as { items?: ChatItem[]; total?: number }
+      if (Array.isArray(data.items)) {
+        libraryChats.value = data.items
+      }
+      const total = data.total || data.items?.length || 0
+      libraryTotalPages.value = Math.max(1, Math.ceil(total / libraryLimit))
+      libraryPage.value = page
+    }
+  } finally {
+    libraryLoading.value = false
+  }
+}
+
+async function openChatFromLibrary(id: string) {
+  showLibrary.value = false
+  await openChat(id)
+}
+
 onMounted(() => {
   void loadSidebar()
   void loadModels()
@@ -177,19 +250,52 @@ watch(
     void loadSidebar()
   }
 )
+
+watch(showLibrary, (val) => {
+  if (val) {
+    void loadLibraryPage(1)
+  }
+})
 </script>
 
 <style scoped>
 .layout {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 56px 280px 1fr;
   min-height: 100vh;
   background: var(--bg);
   color: var(--fg);
 }
+.icon-bar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  background: #f9fafb;
+  border-right: 1px solid var(--border);
+}
+.icon-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #374151;
+  transition: background 0.15s, color 0.15s;
+}
+.icon-btn:hover {
+  background: #0f766e;
+  color: #fff;
+  border-color: #0f766e;
+}
 .sidebar {
   border-right: 1px solid var(--border);
   padding: 20px 16px;
+  overflow: hidden;
 }
 .brand {
   font-size: 16px;
@@ -245,6 +351,8 @@ watch(
   text-align: left;
   cursor: pointer;
   width: 100%;
+  min-width: 0;
+  overflow: hidden;
 }
 .nav-link:hover {
   background: var(--hover);
@@ -255,6 +363,9 @@ watch(
 .nav-title {
   font-size: 13px;
   font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nav-meta {
   font-size: 11px;
@@ -389,5 +500,103 @@ watch(
 }
 .modal-close:hover {
   background: #f9fafb;
+}
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.modal-close-icon {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.modal-close-icon:hover {
+  background: var(--hover);
+  color: var(--fg);
+}
+.library-modal {
+  width: min(560px, 92vw);
+  max-height: 80vh;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+.library-list {
+  overflow-y: auto;
+  max-height: 400px;
+  display: grid;
+  gap: 4px;
+  padding: 8px 0;
+}
+.library-loading,
+.library-empty {
+  font-size: 13px;
+  color: var(--muted);
+  padding: 12px;
+  text-align: center;
+}
+.library-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--fg);
+}
+.library-item:hover {
+  background: var(--hover);
+}
+.library-item--active {
+  background: rgba(15, 118, 110, 0.1);
+}
+.library-item-title {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-item-date {
+  font-size: 11px;
+  color: var(--muted);
+}
+.library-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pagination-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.pagination-btn:hover:not(:disabled) {
+  background: var(--hover);
+}
+.pagination-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.pagination-info {
+  font-size: 12px;
+  color: var(--muted);
 }
 </style>

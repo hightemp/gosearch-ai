@@ -9,11 +9,14 @@
         <div class="search-icon">
           <Search class="icon" />
         </div>
-        <input
+        <textarea
+          ref="searchTextarea"
           v-model="q"
           class="search-input"
           placeholder="Спросите что угодно..."
+          rows="1"
           @keydown.enter.exact.prevent="submit"
+          @input="autoResizeSearch"
         />
 
         <div class="model-picker">
@@ -37,7 +40,7 @@
           <ArrowRight class="icon icon--inverse" />
         </button>
       </div>
-      <div class="hint">Enter — отправить (Shift+Enter добавим позже)</div>
+      <div class="hint">Enter — отправить, Shift+Enter — новая строка</div>
     </div>
   </div>
 </template>
@@ -50,6 +53,7 @@ import { useModelStore } from '../modelStore'
 
 const router = useRouter()
 const q = ref('')
+const searchTextarea = ref<HTMLTextAreaElement | null>(null)
 
 const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
 const showModelMenu = ref(false)
@@ -61,6 +65,13 @@ function toggleModelMenu() {
 function selectModel(model: string) {
   setModel(model)
   showModelMenu.value = false
+}
+
+function autoResizeSearch() {
+  const el = searchTextarea.value
+  if (!el) return
+  el.style.height = 'auto'
+  el.style.height = Math.min(el.scrollHeight, 200) + 'px'
 }
 
 async function submit() {
@@ -123,6 +134,12 @@ onMounted(() => {
   border-radius: 12px;
   border: 1px solid var(--border);
   outline: none;
+  resize: none;
+  min-height: 52px;
+  max-height: 200px;
+  overflow-y: auto;
+  line-height: 1.5;
+  font-family: inherit;
 }
 .search-input:focus {
   border-color: #0f766e;
