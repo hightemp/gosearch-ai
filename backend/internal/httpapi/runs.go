@@ -178,7 +178,7 @@ func (s *Server) handleRunStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	_, _ = s.pool.Exec(r.Context(), `insert into messages(chat_id,user_id,role,content) values ($1,$2,'user',$3)`, chatID, user.ID, q)
+	_, _ = s.pool.Exec(r.Context(), `insert into messages(chat_id,user_id,role,content,run_id) values ($1,$2,'user',$3,$4)`, chatID, user.ID, q, runID)
 	_, _ = s.pool.Exec(r.Context(), `update chats set updated_at=now() where id=$1`, chatID)
 
 	s.logger.Info().Str("run_id", runID).Str("chat_id", chatID).Str("model", model).Msg("run started")

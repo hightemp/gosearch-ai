@@ -41,6 +41,7 @@ type messageItem struct {
 	Role      string    `json:"role"`
 	Content   string    `json:"content"`
 	CreatedAt time.Time `json:"created_at"`
+	RunID     *string   `json:"run_id,omitempty"`
 }
 
 func (s *Server) handleListChats(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +99,7 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	limit, offset := parseLimitOffset(r, 50, 200)
 	rows, err := s.pool.Query(
 		r.Context(),
-		`select m.id, m.role, m.content, m.created_at
+		`select m.id, m.role, m.content, m.created_at, m.run_id
 		 from messages m
 		 join chats c on c.id=m.chat_id
 		 where m.chat_id=$1 and c.user_id=$2 and c.deleted_at is null
@@ -118,7 +119,7 @@ func (s *Server) handleListMessages(w http.ResponseWriter, r *http.Request) {
 	items := make([]messageItem, 0, limit)
 	for rows.Next() {
 		var item messageItem
-		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.CreatedAt); err != nil {
+		if err := rows.Scan(&item.ID, &item.Role, &item.Content, &item.CreatedAt, &item.RunID); err != nil {
 			writeErr(w, http.StatusInternalServerError, err.Error())
 			return
 		}

@@ -84,7 +84,7 @@ import { useModelStore } from '../stores/modelStore'
 
 type AnswerDelta = { delta?: string }
 type AnswerFinal = { answer?: string; model?: string }
-type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string }
+type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string; run_id?: string }
 type ChatMeta = { last_run_id?: string; bookmarked?: boolean }
 
 const route = useRoute()
@@ -167,13 +167,14 @@ const messages = computed(() => {
   return history.value.map((msg) => {
     const roleLabel = msg.role === 'assistant' ? 'Ассистент' : 'Вы'
     const isLatestAssistant = msg.id === lastAssistantId.value
-    const citations = isLatestAssistant ? citationSources.value : []
+    
+    // Use run_id from API if available, otherwise extract from message id format
+    const msgRunId = msg.run_id || msg.id.replace('user-', '').replace('assistant-', '')
+    const sourcesForRun = sourcesByRunId.value.get(msgRunId) || []
+    
+    const citations = isLatestAssistant ? citationSources.value : sourcesForRun
     const html = msg.role === 'assistant' ? renderMarkdown(msg.content, citations) : ''
     const modelLabel = isLatestAssistant ? answerModel.value : ''
-    
-    // Extract runId from message id (format: user-{runId} or assistant-{runId})
-    const msgRunId = msg.id.replace('user-', '').replace('assistant-', '')
-    const sourcesForRun = sourcesByRunId.value.get(msgRunId) || []
     
     return { 
       ...msg, 
@@ -397,18 +398,29 @@ async function loadRunData(chatId: string) {
   if (!lastRunId) return
   runId.value = lastRunId
 
-  const [stepsResp, sourcesResp] = await Promise.all([
-    apiFetch(`/runs/${lastRunId}/steps`),
-    apiFetch(`/runs/${lastRunId}/sources`)
-  ])
+  // Get unique run_ids from history
+  const uniqueRunIds = new Set<string>()
+  for (const msg of history.value) {
+    if (msg.run_id) {
+      uniqueRunIds.add(msg.run_id)
+    }
+  }
+  // Always include lastRunId
+  uniqueRunIds.add(lastRunId)
 
+  // Load steps for the last run
+  const stepsResp = await apiFetch(`/runs/${lastRunId}/steps`)
   if (stepsResp.ok) {
     const data = (await stepsResp.json()) as { items?: Step[] }
     if (Array.isArray(data.items)) {
       steps.value = data.items
     }
   }
-  if (sourcesResp.ok) {
+
+  // Load sources for all unique run_ids
+  const sourcesPromises = Array.from(uniqueRunIds).map(async (rid) => {
+    const sourcesResp = await apiFetch(`/runs/${rid}/sources`)
+    if (!sourcesResp.ok) return
     const data = (await sourcesResp.json()) as { items?: any[] }
     if (Array.isArray(data.items)) {
       const sources: Source[] = data.items.map((item) => ({
@@ -418,13 +430,19 @@ async function loadRunData(chatId: string) {
         faviconUrl: item.favicon_url,
         markdownContent: item.markdown_content
       }))
-      sourcesByRunId.value.set(lastRunId, sources)
-      sourceTitles.value = sources.reduce<Record<string, string>>((acc, item) => {
-        if (item.url && item.title) acc[item.url] = item.title
-        return acc
-      }, {})
+      sourcesByRunId.value.set(rid, sources)
+      
+      // Update sourceTitles for the last run
+      if (rid === lastRunId) {
+        sourceTitles.value = sources.reduce<Record<string, string>>((acc, item) => {
+          if (item.url && item.title) acc[item.url] = item.title
+          return acc
+        }, {})
+      }
     }
-  }
+  })
+
+  await Promise.all(sourcesPromises)
 }
 
 async function submitFollowup() {
@@ -461,7 +479,7 @@ async function loadHistory(chatId: string) {
   if (!Array.isArray(data.items)) return
   history.value = data.items
     .filter((msg) => msg.role === 'user' || msg.role === 'assistant')
-    .map((msg) => ({ id: msg.id, role: msg.role, content: msg.content }))
+    .map((msg) => ({ id: msg.id, role: msg.role, content: msg.content, run_id: msg.run_id }))
   const lastAssistant = [...history.value].reverse().find((msg) => msg.role === 'assistant')
   answerText.value = lastAssistant?.content || ''
 }

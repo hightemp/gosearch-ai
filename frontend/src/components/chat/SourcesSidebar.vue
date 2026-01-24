@@ -14,8 +14,9 @@
           </header>
           
           <div class="sources-list">
-            <article v-for="source in sources" :key="source.url" class="source-card">
+            <article v-for="(source, index) in sources" :key="source.url" class="source-card">
               <div class="source-header">
+                <span class="source-number">[{{ index + 1 }}]</span>
                 <img :src="getFavicon(source.url)" class="favicon" alt="" />
                 <div class="source-meta">
                   <a :href="source.url" target="_blank" rel="noreferrer" class="source-title">
@@ -188,8 +189,16 @@ function getPreview(content: string, maxLength = 200): string {
 
 .source-header {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
+}
+
+.source-number {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 24px;
+  flex-shrink: 0;
 }
 
 .favicon {

@@ -989,7 +989,7 @@ func (s *Server) storeAssistantMessage(ctx context.Context, runID, answer string
 	if err := s.pool.QueryRow(ctx, `select chat_id from runs where id=$1`, runID).Scan(&chatID); err != nil {
 		return err
 	}
-	_, err := s.pool.Exec(ctx, `insert into messages(chat_id, user_id, role, content) select $1, user_id, 'assistant', $2 from runs where id=$3`, chatID, answer, runID)
+	_, err := s.pool.Exec(ctx, `insert into messages(chat_id, user_id, role, content, run_id) select $1, user_id, 'assistant', $2, $3 from runs where id=$3`, chatID, answer, runID)
 	return err
 }
 
