@@ -5,6 +5,7 @@
       :key="msg.id"
       :message="msg"
       @show-sources="$emit('show-sources', $event)"
+      @regenerate="$emit('regenerate', $event)"
     />
     <div v-if="isRunning" class="message message--assistant">
       <div class="message-role">Assistant</div>
@@ -26,6 +27,7 @@ defineProps<{
 
 defineEmits<{
   'show-sources': [runId: string]
+  'regenerate': [runId: string]
 }>()
 </script>
 

@@ -23,6 +23,7 @@
           :messages="messages"
           :is-running="isRunning"
           @show-sources="openSourcesPanel"
+          @regenerate="handleRegenerate"
         />
         <StepsList
           v-else
@@ -202,6 +203,35 @@ function openSourcesPanel(msgRunId: string) {
 
 function closeSourcesPanel() {
   sourcesPanelOpen.value = false
+}
+
+async function handleRegenerate(msgRunId: string) {
+  if (isRunning.value) return
+  
+  // Find user query for this run
+  const userMsg = history.value.find(m => m.id === `user-${msgRunId}` || m.run_id === msgRunId)
+  if (!userMsg) return
+  
+  const queryText = userMsg.content
+  
+  // Remove assistant response from history
+  const assistantIdx = history.value.findIndex(m => m.id === `assistant-${msgRunId}` || (m.role === 'assistant' && m.run_id === msgRunId))
+  if (assistantIdx !== -1) {
+    history.value.splice(assistantIdx, 1)
+  }
+  
+  // Remove user message too (startRun will add it back)
+  const userIdx = history.value.findIndex(m => m.id === `user-${msgRunId}` || (m.role === 'user' && m.run_id === msgRunId))
+  if (userIdx !== -1) {
+    history.value.splice(userIdx, 1)
+  }
+  
+  // Clear sources for this run
+  sourcesByRunId.value.delete(msgRunId)
+  
+  // Restart with same query
+  const model = String(route.query.model || selectedModel.value || '').trim()
+  await startRun(queryText, model, currentChatId.value || undefined)
 }
 
 function truncateText(text: string, maxLen: number): string {

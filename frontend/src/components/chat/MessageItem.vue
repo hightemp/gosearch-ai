@@ -5,27 +5,42 @@
         {{ roleLabel }}
         <span v-if="message.modelLabel" class="model-badge">{{ message.modelLabel }}</span>
       </div>
-      <button v-if="message.role === 'assistant'" class="copy-btn" @click="copyText(message.content)" aria-label="Copy">
-        <Copy class="copy-icon" />
-      </button>
     </div>
     <div class="message-body" v-if="message.role === 'assistant'" v-html="message.html" />
     <div class="message-body" v-else>{{ message.content }}</div>
     
-    <!-- Sources button for assistant messages -->
-    <button 
-      v-if="message.role === 'assistant' && message.sourcesCount && message.sourcesCount > 0" 
-      class="sources-btn"
-      @click="$emit('show-sources', message.runId)"
-    >
-      <FileText :size="14" />
-      {{ message.sourcesCount }} sources
-    </button>
+    <!-- Action buttons for assistant messages -->
+    <div v-if="message.role === 'assistant'" class="message-actions">
+      <div class="action-buttons">
+        <button class="action-btn" @click="copyUrl" title="Copy URL">
+          <Link2 :size="16" />
+        </button>
+        <button class="action-btn" @click="downloadMarkdown" title="Download as Markdown">
+          <Download :size="16" />
+        </button>
+        <button class="action-btn" @click="copyText(message.content)" title="Copy answer">
+          <Copy :size="16" />
+        </button>
+        <button class="action-btn" @click="regenerate" title="Regenerate">
+          <RefreshCw :size="16" />
+        </button>
+      </div>
+      
+      <!-- Sources button -->
+      <button 
+        v-if="message.sourcesCount && message.sourcesCount > 0" 
+        class="sources-btn"
+        @click="emit('show-sources', message.runId)"
+      >
+        <FileText :size="14" />
+        {{ message.sourcesCount }} sources
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Copy, FileText } from 'lucide-vue-next'
+import { Copy, FileText, Link2, Download, RefreshCw } from 'lucide-vue-next'
 import { computed } from 'vue'
 
 export interface MessageData {
@@ -42,8 +57,9 @@ const props = defineProps<{
   message: MessageData
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'show-sources': [runId: string]
+  'regenerate': [runId: string]
 }>()
 
 const roleLabel = computed(() => {
@@ -74,6 +90,39 @@ function copyText(text: string) {
   document.execCommand('copy')
   document.body.removeChild(textarea)
 }
+
+function copyUrl() {
+  const url = window.location.href
+  if (navigator.clipboard?.writeText) {
+    void navigator.clipboard.writeText(url)
+    return
+  }
+  const textarea = document.createElement('textarea')
+  textarea.value = url
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  document.execCommand('copy')
+  document.body.removeChild(textarea)
+}
+
+function downloadMarkdown() {
+  const content = props.message.content
+  const blob = new Blob([content], { type: 'text/markdown' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `answer-${Date.now()}.md`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+function regenerate() {
+  if (props.message.runId) {
+    emit('regenerate', props.message.runId)
+  }
+}
 </script>
 
 <style scoped>
@@ -89,27 +138,7 @@ function copyText(text: string) {
   gap: 12px;
 }
 
-.copy-btn {
-  border: 1px solid var(--border);
-  background: var(--card-bg);
-  color: var(--fg);
-  font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
 
-.copy-btn:hover {
-  background: var(--hover);
-}
-
-.copy-icon {
-  width: 14px;
-  height: 14px;
-}
 
 .message-role {
   font-size: 11px;
@@ -245,12 +274,47 @@ function copyText(text: string) {
   padding-left: 12px;
 }
 
+/* Message actions */
+.message-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-btn:hover {
+  background: var(--hover);
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
 /* Sources button */
 .sources-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
   padding: 6px 12px;
   font-size: 12px;
   color: var(--accent);
