@@ -261,10 +261,11 @@
 
 <script setup lang="ts">
 import { Bookmark, ChevronLeft, ChevronRight, Library, MessageSquare, Monitor, Moon, Plus, Settings, Sun, Trash2, X } from 'lucide-vue-next'
+import { storeToRefs } from 'pinia'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch } from './api'
-import { useModelStore } from './modelStore'
+import { useModelStore } from './stores/modelStore'
 import { useSettingsStore, type Theme } from './settingsStore'
 
 type ChatItem = {
@@ -303,7 +304,9 @@ const bookmarksModalPage = ref(1)
 const bookmarksModalTotalPages = ref(1)
 const bookmarksModalLoading = ref(false)
 const bookmarksModalLimit = 20
-const { models, selectedModel, loadModels, setModel } = useModelStore()
+const modelStore = useModelStore()
+const { models, selectedModel } = storeToRefs(modelStore)
+const { loadModels, setModel } = modelStore
 const { theme, setTheme, initTheme } = useSettingsStore()
 
 const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [

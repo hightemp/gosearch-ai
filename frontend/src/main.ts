@@ -1,5 +1,6 @@
 import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
+import { createPinia } from 'pinia'
 import App from './App.vue'
 import { routes } from './router'
 import 'katex/dist/katex.min.css'
@@ -11,4 +12,6 @@ const router = createRouter({
   routes
 })
 
-createApp(App).use(router).mount('#app')
+const pinia = createPinia()
+
+createApp(App).use(pinia).use(router).mount('#app')

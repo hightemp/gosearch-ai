@@ -243,10 +243,11 @@ import { ArrowRight, Bookmark, Copy, Cpu, Image, Link, ListChecks, MessageSquare
 import hljs from 'highlight.js'
 import MarkdownIt from 'markdown-it'
 import mk from 'markdown-it-katex'
+import { storeToRefs } from 'pinia'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { apiFetch, apiUrl } from '../api'
-import { useModelStore } from '../modelStore'
+import { useModelStore } from '../stores/modelStore'
 
 type Step = { type: string; title: string; payload: any; created_at?: string }
 type Source = { url: string; title?: string }
@@ -280,7 +281,9 @@ const answerRef = ref<HTMLElement | null>(null)
 const showModelMenu = ref(false)
 const composerTextarea = ref<HTMLTextAreaElement | null>(null)
 const isBookmarked = ref(false)
-const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
+const modelStore = useModelStore()
+const { models, selectedModel, isLoadingModels } = storeToRefs(modelStore)
+const { loadModels, setModel } = modelStore
 
 const md = new MarkdownIt({
   html: false,

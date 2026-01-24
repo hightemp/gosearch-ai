@@ -47,15 +47,18 @@
 
 <script setup lang="ts">
 import { ArrowRight, Cpu, Search } from 'lucide-vue-next'
+import { storeToRefs } from 'pinia'
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useModelStore } from '../modelStore'
+import { useModelStore } from '../stores/modelStore'
 
 const router = useRouter()
 const q = ref('')
 const searchTextarea = ref<HTMLTextAreaElement | null>(null)
 
-const { models, selectedModel, isLoadingModels, loadModels, setModel } = useModelStore()
+const modelStore = useModelStore()
+const { models, selectedModel, isLoadingModels } = storeToRefs(modelStore)
+const { loadModels, setModel } = modelStore
 const showModelMenu = ref(false)
 
 function toggleModelMenu() {
