@@ -5,7 +5,9 @@ openrouter:
     - google/gemini-3-pro-preview
     - x-ai/grok-4.1-fast
     - z-ai/glm-4.7
-    - deepseek/deepseek-v3.2-speciale
     - deepseek/deepseek-v3.2
+    - deepseek/deepseek-r1-0528
     - anthropic/claude-haiku-4.5
     - anthropic/claude-sonnet-4.5
+    - moonshotai/kimi-k2-thinking
+    - minimax/minimax-m2.1
