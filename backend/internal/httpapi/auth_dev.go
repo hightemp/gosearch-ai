@@ -11,15 +11,15 @@ import (
 
 // withUser attaches a user to the request context.
 //
-// Сейчас сделан dev-режим: если нет Authorization, создаём/используем одного
-// пользователя dev@local. Это позволяет развивать UI/агентов до внедрения полноценного auth.
+// Dev-mode implementation: if no Authorization header is present, create/use a single
+// user dev@local. This allows UI/agent development before implementing full auth.
 func (s *Server) withUser(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authz := strings.TrimSpace(r.Header.Get("Authorization"))
-		_ = authz // TODO: внедрить JWT auth
+		_ = authz // TODO: implement JWT auth
 
 		if s.cfg.Env != "dev" {
-			// Пока без auth в prod запретим все, кроме healthz.
+			// In production without auth, we'll forbid everything except healthz.
 			if r.URL.Path != "/healthz" {
 				writeErr(w, http.StatusUnauthorized, "auth required")
 				return

@@ -7,7 +7,7 @@
     >
       <ChevronLeft class="icon icon--small" />
     </button>
-    <span class="pagination-info">Страница {{ page }} из {{ totalPages }}</span>
+    <span class="pagination-info">Page {{ page }} of {{ totalPages }}</span>
     <button
       class="pagination-btn"
       :disabled="page >= totalPages"

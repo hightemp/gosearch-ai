@@ -18,7 +18,7 @@
 
     <main class="main">
       <div class="main-header">
-        <button class="settings-btn" @click="showSettings = true" aria-label="Настройки">
+        <button class="settings-btn" @click="showSettings = true" aria-label="Settings">
           <Settings class="icon icon--small" />
         </button>
       </div>
@@ -39,10 +39,10 @@
     <!-- Library Modal -->
     <PaginatedListModal
       v-if="showLibrary"
-      title="Все диалоги"
+      title="All chats"
       :items="libraryChats"
       :loading="libraryLoading"
-      empty-text="Нет диалогов"
+      empty-text="No chats"
       :page="libraryPage"
       :total-pages="libraryTotalPages"
       :active-id="activeChatId"
@@ -57,10 +57,10 @@
     <!-- Bookmarks Modal -->
     <PaginatedListModal
       v-if="showBookmarksModal"
-      title="Закладки"
+      title="Bookmarks"
       :items="bookmarksModalList"
       :loading="bookmarksModalLoading"
-      empty-text="Нет закладок"
+      empty-text="No bookmarks"
       :page="bookmarksModalPage"
       :total-pages="bookmarksModalTotalPages"
       :active-id="activeChatId"
@@ -166,7 +166,7 @@ async function removeBookmark(chatId: string) {
 }
 
 async function deleteChat(chatId: string) {
-  if (!confirm('Удалить этот диалог?')) return
+  if (!confirm('Delete this chat?')) return
   const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
   if (!resp.ok) return
   if (activeChatId.value === chatId) {

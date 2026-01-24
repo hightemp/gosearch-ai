@@ -1,7 +1,7 @@
 <template>
   <ModalBackdrop :title="title" modal-class="paginated-modal" @close="$emit('close')">
     <div class="list-content">
-      <div v-if="loading" class="list-loading">Загрузка...</div>
+      <div v-if="loading" class="list-loading">Loading...</div>
       <div v-else-if="!items.length" class="list-empty">{{ emptyText }}</div>
       <div
         v-for="item in items"
@@ -13,23 +13,23 @@
           :class="{ 'list-item--active': item.id === activeId }"
           @click="$emit('open', item.id)"
         >
-          <span class="list-item-title">{{ item.title || 'Без названия' }}</span>
+          <span class="list-item-title">{{ item.title || 'Untitled' }}</span>
           <span class="list-item-date">{{ formatDate(getItemDate(item)) }}</span>
         </button>
         <div class="list-actions">
           <button
             class="list-action"
             :class="{ 'list-action--active': item.bookmarked }"
-            :title="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
-            :aria-label="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+            :title="item.bookmarked ? 'Remove from bookmarks' : 'Add to bookmarks'"
+            :aria-label="item.bookmarked ? 'Remove from bookmarks' : 'Add to bookmarks'"
             @click="$emit('toggleBookmark', item)"
           >
             <Bookmark class="icon icon--tiny" />
           </button>
           <button
             class="list-action list-action--danger"
-            title="Удалить диалог"
-            aria-label="Удалить диалог"
+            title="Delete chat"
+            aria-label="Delete chat"
             @click="$emit('delete', item.id)"
           >
             <Trash2 class="icon icon--tiny" />
@@ -90,7 +90,7 @@ function formatDate(input?: string) {
   if (!input) return ''
   const dt = new Date(input)
   if (Number.isNaN(dt.getTime())) return ''
-  return dt.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' })
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 </script>
 

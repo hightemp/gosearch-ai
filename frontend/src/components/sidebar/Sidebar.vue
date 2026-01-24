@@ -3,15 +3,15 @@
     <div class="brand">
       <span class="brand-title">
         <Library class="icon icon--brand" />
-        Библиотека
+        Library
       </span>
     </div>
     <nav class="nav">
       <div class="nav-section">
         <Bookmark class="icon icon--small" />
-        Закладки
+        Bookmarks
       </div>
-      <div v-if="!bookmarks.length" class="nav-muted">Пока нет закладок.</div>
+      <div v-if="!bookmarks.length" class="nav-muted">No bookmarks yet.</div>
       <ChatListItem
         v-for="item in bookmarks"
         :key="item.id"
@@ -25,9 +25,9 @@
 
       <div class="nav-section">
         <MessageSquare class="icon icon--small" />
-        Недавние
+        Recent
       </div>
-      <div v-if="!recentChats.length" class="nav-muted">Пока нет запросов.</div>
+      <div v-if="!recentChats.length" class="nav-muted">No queries yet.</div>
       <ChatListItem
         v-for="item in recentChats"
         :key="item.id"

@@ -1,10 +1,10 @@
 <template>
-  <ModalBackdrop title="Настройки" @close="$emit('close')">
+  <ModalBackdrop title="Settings" @close="$emit('close')">
     <div class="settings-content">
       <div class="settings-section">
-        <div class="settings-section-title">Внешний вид</div>
+        <div class="settings-section-title">Appearance</div>
         <div class="settings-item">
-          <div class="settings-item-label">Тема оформления</div>
+          <div class="settings-item-label">Theme</div>
           <div class="theme-switcher">
             <button
               v-for="opt in themeOptions"
@@ -21,9 +21,9 @@
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">Модель</div>
+        <div class="settings-section-title">Model</div>
         <div class="settings-item">
-          <div class="settings-item-label">Модель ответа</div>
+          <div class="settings-item-label">Response model</div>
           <div class="model-options">
             <button
               v-for="m in models"
@@ -40,7 +40,7 @@
     </div>
 
     <template #actions>
-      <button class="modal-close" @click="$emit('close')">Закрыть</button>
+      <button class="modal-close" @click="$emit('close')">Close</button>
     </template>
   </ModalBackdrop>
 </template>
@@ -52,9 +52,9 @@ import ModalBackdrop from '../common/ModalBackdrop.vue'
 export type Theme = 'light' | 'dark' | 'system'
 
 const themeOptions: { value: Theme; label: string; icon: typeof Sun }[] = [
-  { value: 'light', label: 'Светлая', icon: Sun },
-  { value: 'dark', label: 'Тёмная', icon: Moon },
-  { value: 'system', label: 'Системная', icon: Monitor }
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor }
 ]
 
 defineProps<{

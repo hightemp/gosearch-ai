@@ -16,19 +16,19 @@
       <button
         class="bookmark-btn"
         :class="{ 'bookmark-btn--active': isBookmarked }"
-        :title="isBookmarked ? 'Убрать из избранного' : 'Добавить в избранное'"
+        :title="isBookmarked ? 'Remove from favorites' : 'Add to favorites'"
         @click="$emit('toggleBookmark')"
       >
         <Bookmark class="bookmark-icon" />
-        {{ isBookmarked ? 'В избранном' : 'В избранное' }}
+        {{ isBookmarked ? 'In favorites' : 'Favorite' }}
       </button>
       <button
         class="delete-btn"
-        title="Удалить диалог"
+        title="Delete chat"
         @click="$emit('delete')"
       >
         <Trash2 class="delete-icon" />
-        Удалить
+        Delete
       </button>
     </div>
   </div>
@@ -40,10 +40,10 @@ import { Bookmark, Image, Link, ListChecks, MessageSquare, Trash2 } from 'lucide
 export type TabValue = 'answer' | 'steps' | 'links' | 'images'
 
 const tabs: { value: TabValue; label: string; icon: typeof MessageSquare }[] = [
-  { value: 'answer', label: 'Ответ', icon: MessageSquare },
-  { value: 'steps', label: 'Шаги', icon: ListChecks },
-  { value: 'links', label: 'Ссылки', icon: Link },
-  { value: 'images', label: 'Изображения', icon: Image }
+  { value: 'answer', label: 'Answer', icon: MessageSquare },
+  { value: 'steps', label: 'Steps', icon: ListChecks },
+  { value: 'links', label: 'Links', icon: Link },
+  { value: 'images', label: 'Images', icon: Image }
 ]
 
 defineProps<{

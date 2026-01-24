@@ -13,7 +13,7 @@
           ref="searchTextarea"
           v-model="q"
           class="search-input"
-          placeholder="Спросите что угодно..."
+          placeholder="Ask anything..."
           rows="1"
           @keydown.enter.exact.prevent="submit"
           @input="autoResizeSearch"
@@ -31,7 +31,7 @@
           <ArrowRight class="icon icon--inverse" />
         </button>
       </div>
-      <div class="hint">Enter - отправить, Shift+Enter - новая строка</div>
+      <div class="hint">Enter - send, Shift+Enter - new line</div>
     </div>
   </div>
 </template>

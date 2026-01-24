@@ -5,10 +5,10 @@
         <aside class="sources-sidebar">
           <header class="sidebar-header">
             <div class="header-content">
-              <span class="header-title">{{ sources.length }} источников</span>
+              <span class="header-title">{{ sources.length }} sources</span>
               <span class="header-subtitle">{{ queryContext }}</span>
             </div>
-            <button class="close-btn" @click="$emit('close')" aria-label="Закрыть">
+            <button class="close-btn" @click="$emit('close')" aria-label="Close">
               <X :size="20" />
             </button>
           </header>
@@ -31,7 +31,7 @@
             </article>
 
             <div v-if="sources.length === 0" class="sources-empty">
-              Источники не найдены
+              No sources found
             </div>
           </div>
         </aside>

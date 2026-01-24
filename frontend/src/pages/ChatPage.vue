@@ -16,7 +16,7 @@
 
     <!-- Answer Tab -->
     <div v-if="activeTab === 'answer'" class="answer">
-      <div class="answer-title">Ответ</div>
+      <div class="answer-title">Answer</div>
       <div class="answer-card" ref="answerRef">
         <MessageList
           v-if="messages.length"
@@ -34,21 +34,21 @@
 
     <!-- Steps Tab -->
     <div v-if="activeTab === 'steps'" class="steps">
-      <div class="steps-title">Шаги</div>
+      <div class="steps-title">Steps</div>
       <StepsList :steps="steps" :is-running="isRunning" />
     </div>
 
     <!-- Images Tab -->
     <div v-if="activeTab === 'images'" class="links">
-      <div class="sources-title">Изображения</div>
+      <div class="sources-title">Images</div>
       <div class="sources-card">
-        <div class="sources-empty">Поддержка изображений появится позже.</div>
+        <div class="sources-empty">Image support coming soon.</div>
       </div>
     </div>
 
     <ChatComposer
       v-model="followup"
-      placeholder="Добавить детали или пояснения..."
+      placeholder="Add details or explanations..."
       :can-submit="!!followup.trim()"
       :models="models"
       :selected-model="selectedModel"
@@ -143,10 +143,10 @@ md.renderer.rules.fence = (tokens, idx) => {
 }
 
 const statusText = computed(() => {
-  if (runError.value) return 'Ошибка'
-  if (isRunning.value) return 'Активен...'
-  if (runId.value) return 'Завершено'
-  return 'Ожидание...'
+  if (runError.value) return 'Error'
+  if (isRunning.value) return 'Active...'
+  if (runId.value) return 'Completed'
+  return 'Waiting...'
 })
 
 const lastAssistantId = computed(() => {
@@ -165,7 +165,7 @@ const citationSources = computed<Source[]>(() => {
 
 const messages = computed(() => {
   return history.value.map((msg) => {
-    const roleLabel = msg.role === 'assistant' ? 'Ассистент' : 'Вы'
+    const roleLabel = msg.role === 'assistant' ? 'Assistant' : 'You'
     const isLatestAssistant = msg.id === lastAssistantId.value
     
     // Use run_id from API if available, otherwise extract from message id format
@@ -194,8 +194,8 @@ function openSourcesPanel(msgRunId: string) {
   // Find the user query for context
   const userMsg = history.value.find(m => m.id === `user-${msgRunId}`)
   selectedQueryContext.value = userMsg 
-    ? `Источники для: "${truncateText(userMsg.content, 50)}"`
-    : 'Источники'
+    ? `Sources for: "${truncateText(userMsg.content, 50)}"`
+    : 'Sources'
   
   sourcesPanelOpen.value = true
 }
@@ -231,7 +231,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
   })
   if (!resp.ok) {
     isRunning.value = false
-    runError.value = 'Не удалось запустить поиск.'
+    runError.value = 'Failed to start search.'
     return
   }
   const data = await resp.json()
@@ -268,7 +268,7 @@ async function startRun(queryText: string, model: string, chatId?: string) {
       const urls = obj.payload.urls as string[]
       const sources = urls.map((url, i) => ({
         url,
-        title: sourceTitles.value[url] || `Источник ${i + 1}`
+        title: sourceTitles.value[url] || `Source ${i + 1}`
       }))
       sourcesByRunId.value.set(runId.value, sources)
     }
@@ -297,13 +297,13 @@ async function startRun(queryText: string, model: string, chatId?: string) {
   es.addEventListener('run.error', (ev: MessageEvent) => {
     const obj = JSON.parse(ev.data) as { error?: string }
     isRunning.value = false
-    runError.value = obj.error || 'Ошибка выполнения pipeline.'
+    runError.value = obj.error || 'Pipeline execution error.'
     es.close()
   })
 
   es.onerror = () => {
     isRunning.value = false
-    runError.value = 'Потеряно соединение SSE. Обновите страницу и попробуйте снова.'
+    runError.value = 'SSE connection lost. Please refresh the page and try again.'
     es.close()
   }
 }
@@ -466,7 +466,7 @@ async function toggleBookmark() {
 async function deleteCurrentChat() {
   const chatId = currentChatId.value || String(route.params.chatId || '').trim()
   if (!chatId) return
-  if (!confirm('Удалить этот диалог?')) return
+  if (!confirm('Delete this chat?')) return
   const resp = await apiFetch(`/chats/${chatId}`, { method: 'DELETE' })
   if (!resp.ok) return
   await router.push({ name: 'home' })

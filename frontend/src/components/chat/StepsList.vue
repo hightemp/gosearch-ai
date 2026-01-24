@@ -1,6 +1,6 @@
 <template>
   <div class="steps-card">
-    <div v-if="!steps.length && !isRunning" class="steps-empty">Пока нет шагов...</div>
+    <div v-if="!steps.length && !isRunning" class="steps-empty">No steps yet...</div>
     <div v-for="(st, idx) in stepGroups" :key="idx" class="step">
       <div class="step-type">{{ st.label }}</div>
       <div class="step-title">
@@ -25,9 +25,9 @@
       </div>
     </div>
     <div v-if="isRunning" class="step step--pending">
-      <div class="step-type">В процессе</div>
+      <div class="step-type">In progress</div>
       <div class="step-title">
-        <LoadingDots label="Выполняется" />
+        <LoadingDots label="Running" />
       </div>
     </div>
   </div>
@@ -61,23 +61,23 @@ const stepGroups = computed<StepGroup[]>(() => {
   return props.steps.map((st) => {
     if (st.type === 'agent.fetch') {
       const items = Array.isArray(st.payload?.items) ? st.payload.items : []
-      return { ...st, label: 'Чтение источников', items }
+      return { ...st, label: 'Reading sources', items }
     }
     if (st.type === 'agent.message') {
-      return { ...st, label: 'Сообщение агента', detail: st.payload?.content || '' }
+      return { ...st, label: 'Agent message', detail: st.payload?.content || '' }
     }
     if (st.type === 'agent.reasoning') {
-      return { ...st, label: 'Рассуждение агента', detail: st.payload?.content || '' }
+      return { ...st, label: 'Agent reasoning', detail: st.payload?.content || '' }
     }
     if (st.type === 'search.query') {
-      return { ...st, label: 'Поиск', detail: st.payload?.query || '' }
+      return { ...st, label: 'Search', detail: st.payload?.query || '' }
     }
     if (st.type === 'page.fetch.started') {
       const url = st.payload?.url || ''
-      return { ...st, label: 'Запрос страницы', detailUrl: url, detailDomain: url ? getDomain(url) : '' }
+      return { ...st, label: 'Requesting page', detailUrl: url, detailDomain: url ? getDomain(url) : '' }
     }
     if (st.type === 'run.finished') {
-      return { ...st, label: 'Pipeline завершен' }
+      return { ...st, label: 'Pipeline completed' }
     }
     return { ...st, label: st.title || st.type }
   })

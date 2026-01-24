@@ -19,7 +19,7 @@
       @click="$emit('show-sources', message.runId)"
     >
       <FileText :size="14" />
-      {{ message.sourcesCount }} источников
+      {{ message.sourcesCount }} sources
     </button>
   </div>
 </template>
@@ -47,7 +47,7 @@ defineEmits<{
 }>()
 
 const roleLabel = computed(() => {
-  return props.message.role === 'assistant' ? 'Ассистент' : 'Вы'
+  return props.message.role === 'assistant' ? 'Assistant' : 'You'
 })
 
 function decodeHtmlEntities(input: string) {

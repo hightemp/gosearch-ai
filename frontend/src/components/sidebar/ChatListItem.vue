@@ -5,23 +5,23 @@
       :class="{ 'chat-link--active': isActive }"
       @click="$emit('open', item.id)"
     >
-      <span class="chat-title">{{ item.title || 'Без названия' }}</span>
+      <span class="chat-title">{{ item.title || 'Untitled' }}</span>
       <span class="chat-meta">{{ formatDate(displayDate) }}</span>
     </button>
     <div class="chat-actions">
       <button
         class="chat-action"
         :class="{ 'chat-action--active': item.bookmarked }"
-        :title="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
-        :aria-label="item.bookmarked ? 'Убрать из закладок' : 'Добавить в закладки'"
+        :title="item.bookmarked ? 'Remove from bookmarks' : 'Add to bookmarks'"
+        :aria-label="item.bookmarked ? 'Remove from bookmarks' : 'Add to bookmarks'"
         @click="$emit('toggleBookmark', item)"
       >
         <Bookmark class="icon icon--tiny" />
       </button>
       <button
         class="chat-action chat-action--danger"
-        title="Удалить диалог"
-        aria-label="Удалить диалог"
+        title="Delete chat"
+        aria-label="Delete chat"
         @click="$emit('delete', item.id)"
       >
         <Trash2 class="icon icon--tiny" />
@@ -66,7 +66,7 @@ function formatDate(input?: string) {
   if (!input) return ''
   const dt = new Date(input)
   if (Number.isNaN(dt.getTime())) return ''
-  return dt.toLocaleDateString('ru-RU', { month: 'short', day: 'numeric' })
+  return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 </script>
 

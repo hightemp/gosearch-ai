@@ -103,10 +103,10 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	defer cancel()
 
 	s.logger.Debug().Str("run_id", runID).Str("model", model).Msg("pipeline start")
-	s.publishStep(ctx, runID, "run.started", "Запуск", map[string]any{"model": model, "query": query})
+	s.publishStep(ctx, runID, "run.started", "Starting", map[string]any{"model": model, "query": query})
 
-	s.publishStep(ctx, runID, "plan.ready", "План", map[string]any{
-		"items": []string{"Сформировать поисковый запрос", "Найти источники", "Прочитать страницы", "Сгенерировать ответ"},
+	s.publishStep(ctx, runID, "plan.ready", "Plan", map[string]any{
+		"items": []string{"Formulate search query", "Find sources", "Read pages", "Generate answer"},
 	})
 
 	var (
@@ -133,7 +133,7 @@ func (s *Server) runPipeline(ctx context.Context, runID, query, model string) {
 	}
 
 	_, _ = s.pool.Exec(ctx, `update runs set status='finished', finished_at=now() where id=$1`, runID)
-	s.publishStep(ctx, runID, "run.finished", "Завершено", map[string]any{"status": "ok"})
+	s.publishStep(ctx, runID, "run.finished", "Completed", map[string]any{"status": "ok"})
 	s.logger.Info().Str("run_id", runID).Int("sources", len(sources)).Msg("pipeline finished")
 }
 
@@ -250,14 +250,14 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 		}
 
 		if strings.TrimSpace(resp.Reasoning) != "" {
-			s.publishStep(ctx, runID, "agent.reasoning", "Рассуждение агента", map[string]any{
+			s.publishStep(ctx, runID, "agent.reasoning", "Agent reasoning", map[string]any{
 				"content": truncateRunes(resp.Reasoning, 2000),
 			})
 		}
 
 		if len(resp.ToolCalls) == 0 {
 			if strings.TrimSpace(resp.Content) != "" {
-				s.publishStep(ctx, runID, "agent.message", "Сообщение агента", map[string]any{
+				s.publishStep(ctx, runID, "agent.message", "Agent message", map[string]any{
 					"content": resp.Content,
 				})
 			}
@@ -265,7 +265,7 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 		}
 
 		if strings.TrimSpace(resp.Content) != "" {
-			s.publishStep(ctx, runID, "agent.message", "Сообщение агента", map[string]any{
+			s.publishStep(ctx, runID, "agent.message", "Agent message", map[string]any{
 				"content": resp.Content,
 			})
 		}
@@ -342,10 +342,10 @@ func (s *Server) runAgentPipeline(ctx context.Context, runID, query, model strin
 					result = map[string]any{"items": []any{}}
 					break
 				}
-				s.publishStep(ctx, runID, "agent.fetch", "Чтение источников", map[string]any{
+				s.publishStep(ctx, runID, "agent.fetch", "Reading sources", map[string]any{
 					"items": normalizeResults(items),
 				})
-				s.publishStep(ctx, runID, "sources.selected", "Выбраны источники", map[string]any{
+				s.publishStep(ctx, runID, "sources.selected", "Sources selected", map[string]any{
 					"urls": urlsFromResults(items),
 				})
 				sources, err := s.persistSources(ctx, runID, items)
@@ -412,7 +412,7 @@ func (s *Server) searchProvider(ctx context.Context, runID, query string, queryI
 }
 
 func (s *Server) searchSearx(ctx context.Context, runID, query string, queryIndex, totalQueries int) ([]searchResult, error) {
-	s.publishStep(ctx, runID, "search.query", "Поиск", map[string]any{
+	s.publishStep(ctx, runID, "search.query", "Search", map[string]any{
 		"query":       query,
 		"category":    "general",
 		"query_index": queryIndex,
@@ -494,7 +494,7 @@ func (s *Server) searchSearx(ctx context.Context, runID, query string, queryInde
 		return nil, err
 	}
 
-	s.publishStep(ctx, runID, "search.results", "Результаты поиска", map[string]any{
+	s.publishStep(ctx, runID, "search.results", "Search results", map[string]any{
 		"count":       len(results),
 		"query":       query,
 		"query_index": queryIndex,
@@ -510,7 +510,7 @@ func (s *Server) searchSerper(ctx context.Context, runID, query string, queryInd
 		return nil, fmt.Errorf("SERPER_API_KEY is required for serper provider")
 	}
 
-	s.publishStep(ctx, runID, "search.query", "Поиск", map[string]any{
+	s.publishStep(ctx, runID, "search.query", "Search", map[string]any{
 		"query":       query,
 		"category":    "general",
 		"query_index": queryIndex,
@@ -598,7 +598,7 @@ func (s *Server) searchSerper(ctx context.Context, runID, query string, queryInd
 		return nil, err
 	}
 
-	s.publishStep(ctx, runID, "search.results", "Результаты поиска", map[string]any{
+	s.publishStep(ctx, runID, "search.results", "Search results", map[string]any{
 		"count":       len(results),
 		"query":       query,
 		"query_index": queryIndex,
@@ -678,7 +678,7 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 
 	for i := range sources {
 		source := &sources[i]
-		s.publishStep(ctx, runID, "page.fetch.started", "Запрос страницы", map[string]any{"url": source.URL})
+		s.publishStep(ctx, runID, "page.fetch.started", "Requesting page", map[string]any{"url": source.URL})
 
 		cached, ok, err := s.loadCachedPage(ctx, source.URL)
 		if err == nil && ok && cached.Content != "" && time.Since(cached.FetchedAt) < cacheTTL {
@@ -690,13 +690,13 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 				_, _ = s.pool.Exec(ctx, `update sources set title=$1 where id=$2`, cached.Title, source.ID)
 			}
 
-			s.publishStep(ctx, runID, "page.fetch.ok", "Кэш страницы", map[string]any{
+			s.publishStep(ctx, runID, "page.fetch.ok", "Page cache", map[string]any{
 				"url":         source.URL,
 				"cached":      true,
 				"age_seconds": int(time.Since(cached.FetchedAt).Seconds()),
 			})
 
-			s.publishStep(ctx, runID, "page.readability.ready", "Страница прочитана", map[string]any{
+			s.publishStep(ctx, runID, "page.readability.ready", "Page read", map[string]any{
 				"url":    source.URL,
 				"title":  cached.Title,
 				"length": len(cached.Content),
@@ -710,7 +710,7 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, source.URL, nil)
 		if err != nil {
 			s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("build page request failed")
-			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": err.Error()})
+			s.publishStep(ctx, runID, "page.fetch.error", "Request error", map[string]any{"url": source.URL, "error": err.Error()})
 			continue
 		}
 		req.Header.Set("User-Agent", "gosearch-ai/0.1")
@@ -718,32 +718,32 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 		resp, err := client.Do(req)
 		if err != nil {
 			s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("page fetch failed")
-			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": err.Error()})
+			s.publishStep(ctx, runID, "page.fetch.error", "Request error", map[string]any{"url": source.URL, "error": err.Error()})
 			continue
 		}
 		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 			_ = resp.Body.Close()
 			errMsg := fmt.Errorf("status %d", resp.StatusCode)
 			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page fetch non-200")
-			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": errMsg.Error()})
+			s.publishStep(ctx, runID, "page.fetch.error", "Request error", map[string]any{"url": source.URL, "error": errMsg.Error()})
 			continue
 		}
 
 		contentType := resp.Header.Get("Content-Type")
 		if isPDFContentType(contentType, source.URL) {
-			s.publishStep(ctx, runID, "page.fetch.pdf", "PDF получен", map[string]any{"url": source.URL, "cached": false})
+			s.publishStep(ctx, runID, "page.fetch.pdf", "PDF received", map[string]any{"url": source.URL, "cached": false})
 			text, err := extractPDFText(resp.Body, resp.ContentLength)
 			_ = resp.Body.Close()
 			if err != nil {
 				s.logger.Warn().Err(err).Str("run_id", runID).Str("url", source.URL).Msg("pdf extract failed")
-				s.publishStep(ctx, runID, "page.fetch.error", "Ошибка PDF", map[string]any{"url": source.URL, "error": err.Error()})
+				s.publishStep(ctx, runID, "page.fetch.error", "PDF error", map[string]any{"url": source.URL, "error": err.Error()})
 				continue
 			}
 
-			s.publishStep(ctx, runID, "page.fetch.ok", "PDF извлечен", map[string]any{"url": source.URL, "bytes": len(text), "cached": false})
+			s.publishStep(ctx, runID, "page.fetch.ok", "PDF extracted", map[string]any{"url": source.URL, "bytes": len(text), "cached": false})
 
 			text = sanitizeUTF8(text)
-			s.publishStep(ctx, runID, "page.readability.ready", "PDF прочитан", map[string]any{
+			s.publishStep(ctx, runID, "page.readability.ready", "PDF read", map[string]any{
 				"url":    source.URL,
 				"title":  source.Title,
 				"length": len(text),
@@ -761,7 +761,7 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 		if !isTextContentType(contentType, source.URL) {
 			_ = resp.Body.Close()
 			s.logger.Warn().Str("run_id", runID).Str("url", source.URL).Str("content_type", contentType).Msg("page fetch skipped")
-			s.publishStep(ctx, runID, "page.fetch.skipped", "Пропущен неподдерживаемый тип", map[string]any{
+			s.publishStep(ctx, runID, "page.fetch.skipped", "Skipped unsupported type", map[string]any{
 				"url":          source.URL,
 				"content_type": contentType,
 			})
@@ -773,11 +773,11 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 		if err != nil {
 			errMsg := err
 			s.logger.Warn().Err(errMsg).Str("run_id", runID).Str("url", source.URL).Msg("page read failed")
-			s.publishStep(ctx, runID, "page.fetch.error", "Ошибка запроса", map[string]any{"url": source.URL, "error": errMsg.Error()})
+			s.publishStep(ctx, runID, "page.fetch.error", "Request error", map[string]any{"url": source.URL, "error": errMsg.Error()})
 			continue
 		}
 
-		s.publishStep(ctx, runID, "page.fetch.ok", "Страница получена", map[string]any{"url": source.URL, "bytes": len(body), "cached": false})
+		s.publishStep(ctx, runID, "page.fetch.ok", "Page received", map[string]any{"url": source.URL, "bytes": len(body), "cached": false})
 
 		title, text := extractText(body)
 		title = sanitizeUTF8(title)
@@ -787,7 +787,7 @@ func (s *Server) readSources(ctx context.Context, runID string, sources []source
 			_, _ = s.pool.Exec(ctx, `update sources set title=$1 where id=$2`, title, source.ID)
 		}
 
-		s.publishStep(ctx, runID, "page.readability.ready", "Страница прочитана", map[string]any{
+		s.publishStep(ctx, runID, "page.readability.ready", "Page read", map[string]any{
 			"url":    source.URL,
 			"title":  title,
 			"length": len(text),
@@ -1181,7 +1181,7 @@ func stripTags(input string) string {
 }
 
 func fallbackAnswerSimple(query string) string {
-	return fmt.Sprintf("Не удалось найти достаточно информации для ответа на запрос: %s", query)
+	return fmt.Sprintf("Could not find enough information to answer the request: %s", query)
 }
 
 func normalizeWhitespace(text string) string {

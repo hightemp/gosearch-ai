@@ -4,7 +4,7 @@
       class="model-trigger"
       :disabled="isLoading"
       @click="toggleMenu"
-      aria-label="Выбрать модель"
+      aria-label="Select model"
     >
       <Cpu class="icon icon--small" />
     </button>

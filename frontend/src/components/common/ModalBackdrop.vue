@@ -3,7 +3,7 @@
     <div class="modal" :class="modalClass">
       <div class="modal-header">
         <div class="modal-title">{{ title }}</div>
-        <button class="modal-close-icon" @click="$emit('close')" aria-label="Закрыть">
+        <button class="modal-close-icon" @click="$emit('close')" aria-label="Close">
           <X class="icon icon--small" />
         </button>
       </div>

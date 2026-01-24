@@ -1,12 +1,12 @@
 <template>
   <div class="icon-bar">
-    <button class="icon-btn" @click="$emit('newChat')" title="Новый запрос">
+    <button class="icon-btn" @click="$emit('newChat')" title="New query">
       <Plus class="icon" />
     </button>
-    <button class="icon-btn" @click="$emit('openLibrary')" title="Библиотека">
+    <button class="icon-btn" @click="$emit('openLibrary')" title="Library">
       <Library class="icon" />
     </button>
-    <button class="icon-btn" @click="$emit('openBookmarks')" title="Закладки">
+    <button class="icon-btn" @click="$emit('openBookmarks')" title="Bookmarks">
       <Bookmark class="icon" />
     </button>
   </div>

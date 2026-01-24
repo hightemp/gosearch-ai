@@ -7,9 +7,9 @@
       @show-sources="$emit('show-sources', $event)"
     />
     <div v-if="isRunning" class="message message--assistant">
-      <div class="message-role">Ассистент</div>
+      <div class="message-role">Assistant</div>
       <div class="message-body">
-        <LoadingDots label="Идет генерация" />
+        <LoadingDots label="Generating..." />
       </div>
     </div>
   </div>
