@@ -2,11 +2,9 @@
 
 Gosearch-ai is a Perplexity-style research assistant. It combines a Go backend (SSE + agent pipeline), a Vue 3 frontend, SearxNG search or Serper API, and Postgres storage. The stack runs locally via Docker Compose.
 
-![](screenshots/2026-01-04_15-14.png)
+![](screenshots/2026-01-25_09-06.png)
 
-![](screenshots/2026-01-04_15-14_1.png)
-
-![](screenshots/2026-01-04_15-27.png)
+![](screenshots/2026-01-25_09-06_1.png)
 
 ## Run (Docker)
 
